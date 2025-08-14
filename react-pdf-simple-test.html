@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>React PDF Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-container { border: 1px solid #ccc; padding: 20px; margin: 10px 0; }
+        .error { color: red; }
+        .success { color: green; }
+    </style>
+</head>
+<body>
+    <h1>React PDF Test</h1>
+    
+    <div class="test-container">
+        <h3>Test 1: Direct File URL Access</h3>
+        <p>Testing if we can access the PDF file directly from the API:</p>
+        <a href="http://localhost:3001/api/file-content?filePath=%2FVolumes%2FArchives%2FNext-Label%2Fdatabase%2FAssta%2520Label%2520House%2F180%2520x%2520380%2FQ15020%2Ffiles%2F5ML_Chemical%2520Addiction.pdf" target="_blank">
+            Open PDF directly
+        </a>
+    </div>
+
+    <div class="test-container">
+        <h3>Test 2: React PDF Component</h3>
+        <div id="pdf-container"></div>
+    </div>
+
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/react-pdf@9.2.0/dist/umd/react-pdf.min.js"></script>
+    
+    <script>
+        // Configure PDF.js worker
+        ReactPDF.pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${ReactPDF.pdfjs.version}/build/pdf.worker.min.mjs`;
+        
+        const { useState, useEffect } = React;
+        const { Document, Page } = ReactPDF;
+
+        function PdfTest() {
+            const [numPages, setNumPages] = useState(null);
+            const [pageNumber, setPageNumber] = useState(1);
+            const [error, setError] = useState(null);
+            const [loading, setLoading] = useState(true);
+
+            const pdfUrl = "http://localhost:3001/api/file-content?filePath=" + encodeURIComponent("/Volumes/Archives/Next-Label/database/Assta Label House/180 x 380/Q15020/files/5ML_Chemical Addiction.pdf");
+
+            function onDocumentLoadSuccess({ numPages }) {
+                setNumPages(numPages);
+                setLoading(false);
+                setError(null);
+                console.log('PDF loaded successfully with', numPages, 'pages');
+            }
+
+            function onDocumentLoadError(error) {
+                console.error('PDF loading error:', error);
+                setError(error.message);
+                setLoading(false);
+            }
+
+            if (loading) {
+                return React.createElement('div', { className: 'success' }, 'Loading PDF...');
+            }
+
+            if (error) {
+                return React.createElement('div', { className: 'error' }, 'Error loading PDF: ', error);
+            }
+
+            return React.createElement('div', null,
+                React.createElement('p', { className: 'success' }, `PDF loaded successfully! Pages: ${numPages}`),
+                React.createElement(Document, {
+                    file: pdfUrl,
+                    onLoadSuccess: onDocumentLoadSuccess,
+                    onLoadError: onDocumentLoadError
+                },
+                    React.createElement(Page, {
+                        pageNumber: pageNumber,
+                        width: 300
+                    })
+                )
+            );
+        }
+
+        ReactDOM.render(React.createElement(PdfTest), document.getElementById('pdf-container'));
+    </script>
+</body>
+</html>
