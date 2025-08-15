@@ -1,8 +1,6 @@
 import { Card, CardContent } from "@/components/ui/card";
-import { APITester } from "./APITester";
+import "../styles/globals.css";
 import "./index.css";
-import logo from "./logo.svg";
-import reactLogo from "./react.svg";
 import React, { useState } from "react";
 import { QuotesPage } from "./pages/QuotesPage";
 import { JobPage } from "./pages/JobPage";
@@ -15,9 +13,10 @@ export function App() {
   return (
     <div className="container mx-auto p-8 text-center relative z-10">
       {/* Fixed Header Tabs */}
-      <header className="fixed top-0 left-0 w-full bg-white/80 backdrop-blur-md shadow z-20 flex justify-center gap-4 py-4 border-b border-gray-200">
+      <header className="fixed top-0 left-0 right-0 w-full bg-white shadow z-20 border-b border-gray-200" style={{ height: 64 }}>
+        <div className="h-full max-w-7xl mx-auto flex items-center justify-center gap-4 px-4">
         <button
-          className={`px-6 py-2 rounded font-semibold transition-colors ${
+          className={`w-28 h-10 rounded font-semibold transition-colors ${
             activeTab === "quotes"
               ? "bg-blue-600 text-white"
               : "bg-muted text-black"
@@ -27,7 +26,7 @@ export function App() {
           Quotes
         </button>
         <button
-          className={`px-6 py-2 rounded font-semibold transition-colors ${
+          className={`w-28 h-10 rounded font-semibold transition-colors ${
             activeTab === "job"
               ? "bg-blue-600 text-white"
               : "bg-muted text-black"
@@ -37,7 +36,7 @@ export function App() {
           Job
         </button>
         <button
-          className={`px-6 py-2 rounded font-semibold transition-colors ${
+          className={`w-28 h-10 rounded font-semibold transition-colors ${
             activeTab === "production"
               ? "bg-blue-600 text-white"
               : "bg-muted text-black"
@@ -47,7 +46,7 @@ export function App() {
           Production
         </button>
         <button
-          className={`px-6 py-2 rounded font-semibold transition-colors ${
+          className={`w-28 h-10 rounded font-semibold transition-colors ${
             activeTab === "archive"
               ? "bg-blue-600 text-white"
               : "bg-muted text-black"
@@ -56,10 +55,11 @@ export function App() {
         >
           Archive
         </button>
+        </div>
       </header>
 
       {/* Add spacing for fixed header */}
-      <div className="h-20" />
+      <div style={{ height: 96 }} />
 
       {/* Tab Content */}
       <Card className="bg-card/50 backdrop-blur-sm border-muted">

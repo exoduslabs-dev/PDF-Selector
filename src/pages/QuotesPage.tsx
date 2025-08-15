@@ -11,6 +11,7 @@ interface SizeGroup {
   materials: string;
   lineIdentifiers: string;
   descriptions: string;
+  notes?: string;
   processed?: boolean;
 }
 
@@ -115,6 +116,22 @@ export function QuotesPage() {
     setExpandedStates(prev => ({ ...prev, [quoteId]: state }));
   }, []);
 
+  // Optimistically update only the affected note locally to avoid full list refresh
+  const makeLocalNotesUpdater = useCallback(
+    (quoteId: string) => (size: string, notes: string) => {
+      setQuotes(prev => prev.map(q => {
+        if (q.quoteId !== quoteId) return q;
+        return {
+          ...q,
+          sizeGroups: q.sizeGroups.map(sg => (
+            sg.size === size ? { ...sg, notes } : sg
+          )),
+        };
+      }));
+    },
+    []
+  );
+
   // Handler for data limit change
   const handleDataLimitChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
     const limit = parseInt(event.target.value, 10);
@@ -203,6 +220,7 @@ export function QuotesPage() {
             onDataChange={() => refreshSpecificData(quote.quoteId)}
             preservedState={getPreservedState(quote.quoteId)}
             onStateChange={handleStateChange(quote.quoteId)}
+            onLocalNotesUpdate={makeLocalNotesUpdater(quote.quoteId)}
           />
         ))}
       </div>

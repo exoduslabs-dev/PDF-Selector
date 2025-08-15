@@ -42,6 +42,7 @@ CREATE TABLE quotes (
   profitCentreName TEXT,
   status TEXT,
   changeHistory TEXT,
+  notes TEXT,
   processed BOOLEAN DEFAULT FALSE
 );
 

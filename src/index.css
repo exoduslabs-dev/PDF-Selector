@@ -6,7 +6,7 @@
   }
 
   body {
-    @apply grid place-items-center min-w-[320px] min-h-screen relative m-0 bg-background text-foreground;
+    @apply block min-w-[320px] min-h-screen relative m-0 bg-background text-foreground;
   }
 }
 
@@ -31,6 +31,21 @@ body::before {
   to {
     background-position: 256px 224px;
   }
+}
+
+/* Performance optimizations for notes and interactive elements */
+.will-change-auto {
+  will-change: auto;
+}
+
+/* Optimize paint operations for common elements */
+[data-slot="card"] {
+  contain: layout style;
+}
+
+/* Reduce paint complexity for buttons */
+button {
+  contain: layout;
 }
 
 @keyframes spin {

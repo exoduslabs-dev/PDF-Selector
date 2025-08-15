@@ -6,9 +6,13 @@
   "scripts": {
     "dev": "/Users/switchbox/.bun/bin/bun --hot src/index.tsx",
     "start": "NODE_ENV=production /Users/switchbox/.bun/bin/bun src/index.tsx",
-    "build": "/Users/switchbox/.bun/bin/bun run build.ts"
+    "build": "/Users/switchbox/.bun/bin/bun run build.ts",
+    "labex:sync": "/Users/switchbox/.bun/bin/bun scripts/labex_sync.ts",
+    "labex:monitor": "/Users/switchbox/.bun/bin/bun scripts/labex_sync.ts --monitor",
+    "labex:once": "/Users/switchbox/.bun/bin/bun scripts/labex_sync.ts --once"
   },
   "dependencies": {
+    "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-label": "^2.1.7",
     "@radix-ui/react-select": "^2.2.5",
     "@radix-ui/react-slot": "^1.2.3",
