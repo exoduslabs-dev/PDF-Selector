@@ -69,6 +69,9 @@ export function MaterialsPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterType, setFilterType] = useState<string>("all");
   const [isRefreshing, setIsRefreshing] = useState(false);
+  // Dynamic options for handling and coating
+  const [handlingOptions, setHandlingOptions] = useState<string[]>(["web", "sheet", "other"]);
+  const [coatingOptions, setCoatingOptions] = useState<string[]>(["coated", "uncoated"]);
   
   // Modal and form state
   const [showModal, setShowModal] = useState(false);
@@ -143,12 +146,12 @@ export function MaterialsPage() {
       material_code: "",
       material_name: "",
       substrate_type: "paper",
-      adhesive_type: "permanent", 
-      handling: "hand_applied",
+      adhesive_type: "permanent",
+      handling: "web",
       weight_gsm: 80,
       width_mm: 1000,
       length_mm: 1000,
-      coating: "matte",
+      coating: "coated",
       grain_direction: "",
       glossy_level: "",
       conductive: false,
@@ -170,11 +173,11 @@ export function MaterialsPage() {
       material_name: material.material_name || "",
       substrate_type: material.substrate_type || "paper",
       adhesive_type: material.adhesive_type || "permanent",
-      handling: material.handling || "hand_applied",
+      handling: material.handling || "web",
       weight_gsm: material.weight_gsm || 80,
       width_mm: material.width_mm || 1000,
       length_mm: material.length_mm || 1000,
-      coating: material.coating || "matte",
+      coating: material.coating || "coated",
       grain_direction: material.grain_direction || "",
       glossy_level: material.glossy_level || "",
       conductive: material.conductive || false,
@@ -626,8 +629,8 @@ export function MaterialsPage() {
       
       {/* Add/Edit Material Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/50 flex items-start justify-center p-4 z-50">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl my-8 max-h-[90vh] overflow-y-auto">
             <div className="p-6">
               <h2 className="text-xl font-bold mb-4">
                 {editingMaterial ? 'Edit Material' : 'Add New Material'}
@@ -766,29 +769,44 @@ export function MaterialsPage() {
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Coating
                     </label>
-                    <select
-                      value={formData.coating}
-                      onChange={(e) => setFormData({...formData, coating: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      <option value="gloss">Gloss</option>
-                      <option value="matte">Matte</option>
-                      <option value="satin">Satin</option>
-                    </select>
+                    <div className="flex gap-2">
+                      <select
+                        value={formData.coating}
+                        onChange={(e) => setFormData({...formData, coating: e.target.value})}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        {coatingOptions.map(opt => (
+                          <option key={opt} value={opt}>{opt}</option>
+                        ))}
+                      </select>
+                      <Button type="button" variant="outline" onClick={() => {
+                        const val = prompt('Add new coating option');
+                        if (val) setCoatingOptions(prev => prev.includes(val) ? prev : [...prev, val]);
+                      }}>+
+                      </Button>
+                    </div>
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Handling
                     </label>
-                    <select
-                      value={formData.handling}
-                      onChange={(e) => setFormData({...formData, handling: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      <option value="hand_applied">Hand Applied</option>
-                      <option value="machine_applied">Machine Applied</option>
-                    </select>
+                    <div className="flex gap-2">
+                      <select
+                        value={formData.handling}
+                        onChange={(e) => setFormData({...formData, handling: e.target.value})}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        {handlingOptions.map(opt => (
+                          <option key={opt} value={opt}>{opt}</option>
+                        ))}
+                      </select>
+                      <Button type="button" variant="outline" onClick={() => {
+                        const val = prompt('Add new handling option');
+                        if (val) setHandlingOptions(prev => prev.includes(val) ? prev : [...prev, val]);
+                      }}>+
+                      </Button>
+                    </div>
                   </div>
                 </div>
 
