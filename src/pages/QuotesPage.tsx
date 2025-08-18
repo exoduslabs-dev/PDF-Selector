@@ -11,6 +11,7 @@ interface SizeGroup {
   materials: string;
   lineIdentifiers: string;
   descriptions: string;
+  supply?: string;
   notes?: string;
   processed?: boolean;
 }

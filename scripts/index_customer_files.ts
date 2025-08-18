@@ -37,11 +37,11 @@ async function main() {
     const uploadedAt = stats.birthtime;
 
     // Check if file already exists in DB
- // Insert new file record, skip if already exists
-const result = await client.query(
-  'INSERT INTO customer_file_index (id, fileName, fileLocation, uploadedAt) VALUES (gen_random_uuid(), $1, $2, $3) ON CONFLICT DO NOTHING',
-  [fileName, filePath, uploadedAt]
-);
+    // Insert new file record, skip if already exists
+    const result = await client.query(
+      'INSERT INTO customer_file_index (id, filename, filelocation, uploadedat) VALUES (gen_random_uuid(), $1, $2, $3) ON CONFLICT DO NOTHING',
+      [fileName, filePath, uploadedAt]
+    );
 if (result.rowCount === 1) {
   console.log(`Indexed: ${filePath}`);
 } else {

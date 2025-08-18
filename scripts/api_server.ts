@@ -116,14 +116,15 @@ serve({
               STRING_AGG(DISTINCT q.materialname, ', ') as materials,
               STRING_AGG(DISTINCT q.lineidentifier, ', ') as line_identifiers,
               STRING_AGG(DISTINCT q.linedescription, ' | ') as descriptions,
+              STRING_AGG(DISTINCT COALESCE(q.supply, ''), ' | ') as supply,
               STRING_AGG(DISTINCT COALESCE(q.notes, ''), ' | ') as notes,
               MIN(q.customerid) as customerid,
-              MIN(c.customername) as customername,
+              MIN(COALESCE(q.customername, c.name)) as customername,
               MIN(q.quotedate) as orderdate,
               MIN(q.quotedate) as duedate,
               BOOL_AND(COALESCE(q.processed, false)) as all_processed
             FROM quotes q
-            LEFT JOIN customers c ON q.customerid = c.customerid
+            LEFT JOIN customers c ON q.customerid = c.customer_id
             GROUP BY q.quoteid, q.sizexmm, q.sizeymm
           )
           SELECT 
@@ -136,6 +137,7 @@ serve({
             qa.materials,
             qa.line_identifiers,
             qa.descriptions,
+            qa.supply,
             qa.notes,
             qa.customername,
             qa.orderdate,
@@ -175,6 +177,7 @@ serve({
             materials: row.materials,
             lineIdentifiers: row.line_identifiers,
             descriptions: row.descriptions,
+            supply: row.supply,
             notes: row.notes,
             processed: row.processed
           });
@@ -255,71 +258,35 @@ serve({
         }
         
         const result = await client.query(`
-          WITH job_summary AS (
-            SELECT 
-              jl.jobid,
-              CONCAT(COALESCE(jl.sizexmm::text, 'N/A'), ' x ', COALESCE(jl.sizeymm::text, 'N/A')) as size_mm,
-              jl.quantity,
-              jl.productname,
-              jl.materialname,
-              jl.customerid,
-              jl.lineidentifier,
-              jl.linedescription,
-              jl.processed,
-              c.customername,
-              jl.orderdate,
-              jl.duedate,
-              jl.quoteid
-            FROM job_lines jl 
-            LEFT JOIN customers c ON jl.customerid = c.customerid
-            WHERE jl.jobid IS NOT NULL
-          ),
-          job_aggregated AS (
-            SELECT 
-              jobid,
-              size_mm,
-              COUNT(*) as line_count,
-              SUM(quantity) as total_quantity,
-              STRING_AGG(DISTINCT quantity::text, ', ' ORDER BY quantity::text) as individual_quantities,
-              STRING_AGG(DISTINCT productname, ', ') as products,
-              STRING_AGG(DISTINCT materialname, ', ') as materials,
-              STRING_AGG(DISTINCT lineidentifier, ', ') as line_identifiers,
-              STRING_AGG(DISTINCT linedescription, ' | ') as descriptions,
-              MIN(customerid) as customerid,
-              MIN(customername) as customername,
-              MIN(orderdate) as orderdate,
-              MIN(duedate) as duedate,
-              MIN(quoteid) as quoteid,
-              BOOL_AND(COALESCE(processed, false)) as all_processed
-            FROM job_summary 
-            GROUP BY jobid, size_mm
-          )
           SELECT 
-            ja.jobid,
-            ja.size_mm,
-            ja.line_count,
-            ja.total_quantity,
-            ja.individual_quantities,
-            ja.products,
-            ja.materials,
-            ja.line_identifiers,
-            ja.descriptions,
-            ja.customername,
-            ja.orderdate,
-            ja.duedate,
-            ja.quoteid,
-            ja.all_processed as processed,
-            COUNT(*) OVER (PARTITION BY ja.jobid) as size_variations
-          FROM job_aggregated ja
-          ORDER BY ja.jobid DESC, ja.size_mm
+            j.job_id,
+            CONCAT(COALESCE(j.size_x::text, 'N/A'), ' x ', COALESCE(j.size_y::text, 'N/A')) as size_mm,
+            1 as line_count,
+            j.qty_ordered as total_quantity,
+            j.qty_ordered::text as individual_quantities,
+            COALESCE(j.product_name, j.job_number) as products,
+            COALESCE(j.material_name, m.material_name) as materials,
+            COALESCE(j.line_identifier, j.job_number) as line_identifiers,
+            COALESCE(j.line_description, j.special_instructions) as descriptions,
+            c.name as customername,
+            j.order_date as orderdate,
+            j.due_date as duedate,
+            j.quote_id as quoteid,
+            j.processed as processed,
+            1 as size_variations
+          FROM jobs j
+          LEFT JOIN customers c ON j.customer_id = c.customer_id
+          LEFT JOIN materials m ON j.material_id = m.material_id
+          WHERE j.job_id IS NOT NULL
+          ORDER BY j.order_date DESC, j.job_id DESC
           ${limitClause}
         `);
         
-        // Group by jobId to show size variations
+        // Group by jobId to show jobs (simplified since jobs table already consolidates data)
         const groupedJobs = result.rows.reduce((acc, row) => {
-          if (!acc[row.jobid]) {
-            acc[row.jobid] = {
-              jobId: row.jobid,
+          if (!acc[row.job_id]) {
+            acc[row.job_id] = {
+              jobId: row.job_id,
               customerName: row.customername,
               orderDate: row.orderdate,
               dueDate: row.duedate,
@@ -331,9 +298,9 @@ serve({
             };
           }
           
-          acc[row.jobid].totalLines += parseInt(row.line_count) || 0;
-          acc[row.jobid].totalQuantity += parseInt(row.total_quantity) || 0;
-          acc[row.jobid].sizeGroups.push({
+          acc[row.job_id].totalLines += parseInt(row.line_count) || 0;
+          acc[row.job_id].totalQuantity += parseInt(row.total_quantity) || 0;
+          acc[row.job_id].sizeGroups.push({
             size: row.size_mm,
             lineCount: parseInt(row.line_count) || 0,
             totalQuantity: parseInt(row.total_quantity) || 0,
@@ -388,30 +355,68 @@ serve({
           });
         }
 
-        // Create the directory path
+        // Create the directory path based on customer structure
         const basePath = BASE_FILES_PATH;
         const customerPath = `${basePath}/${customerName}/${size}/${quoteId}/files`;
         
         // Create directory if it doesn't exist
         await Bun.write(`${customerPath}/.keep`, '');
         
-        // Save the file
+        // Save the file to the customer folder
         const filePath = `${customerPath}/${file.name}`;
         await Bun.write(filePath, file);
+
+        console.log(`File uploaded: ${file.name} to ${filePath}`);
 
         // If pdf, generate thumbnail async (do not block response)
         if (/\.pdf$/i.test(file.name)) {
           ensurePdfThumbnail(filePath).catch(() => {});
         }
 
-        // Log the file upload to database (optional)
-        await client.query(`
+        // Store file location in customer_file_index (single source of truth)
+        const fileResult = await client.query(`
           INSERT INTO customer_file_index (
-            id, filename, filelocation, uploadedat, notes, customerfolderid
+            id, filename, filelocation, uploadedat, notes, customerfolderid, deleted
           ) VALUES (
-            gen_random_uuid(), $1, $2, NOW(), $3, NULL
-          )
+            gen_random_uuid(), $1, $2, NOW(), $3, NULL, FALSE
+          ) 
+          ON CONFLICT (filelocation) DO UPDATE SET
+            uploadedat = NOW(),
+            notes = $3,
+            deleted = FALSE
+          RETURNING id
         `, [file.name, filePath, `Uploaded via ${type} interface for ${quoteId}`]);
+        
+        const fileId = fileResult.rows[0].id;
+        
+        // Create association with quote or job line using junction table
+        if (type === 'quote') {
+          await client.query(`
+            INSERT INTO line_file_associations (
+              association_id, file_id, quote_line_identifier, quote_id, 
+              association_type, uploaded_for_context, created_by, deleted_from_association
+            ) VALUES (
+              gen_random_uuid(), $1, $2, $3, 'quote', 'quote_submission', 'system', FALSE
+            )
+            ON CONFLICT (file_id, quote_id, quote_line_identifier) DO UPDATE SET
+              deleted_from_association = FALSE,
+              uploaded_for_context = 'quote_submission'
+          `, [fileId, quoteId, quoteId]); // Using quoteId as line identifier for now
+        } else if (type === 'job') {
+          await client.query(`
+            INSERT INTO line_file_associations (
+              association_id, file_id, job_line_identifier, job_id,
+              association_type, uploaded_for_context, created_by, deleted_from_association
+            ) VALUES (
+              gen_random_uuid(), $1, $2, $3, 'job', 'job_production', 'system', FALSE
+            )
+            ON CONFLICT (file_id, job_id, job_line_identifier) DO UPDATE SET
+              deleted_from_association = FALSE,
+              uploaded_for_context = 'job_production'
+          `, [fileId, quoteId, quoteId]); // Using quoteId as job identifier
+        }
+
+        console.log(`File indexed in database: ${file.name} at ${filePath}`);
 
         return new Response(JSON.stringify({ 
           success: true, 
@@ -459,17 +464,16 @@ serve({
           
           console.log(`Updated ${result.rowCount} quotes`);
         } else if (type === 'job') {
-          // For jobs, update job_lines table
-          const lineIds = lineIdentifiers.split(',').map((id: string) => id.trim());
+          // For jobs, update jobs table using processed field
+          const jobIds = lineIdentifiers.split(',').map((id: string) => id.trim());
           
-          for (const lineId of lineIds) {
+          for (const jobId of jobIds) {
             await client.query(`
-              UPDATE job_lines 
-              SET processed = true 
-              WHERE jobid = $1 
-                AND lineidentifier = $2
-                AND CONCAT(COALESCE(sizexmm::text, 'N/A'), ' x ', COALESCE(sizeymm::text, 'N/A')) = $3
-            `, [id, lineId, size]);
+              UPDATE jobs 
+              SET processed = true
+              WHERE job_id = $1 
+                AND CONCAT(COALESCE(size_x::text, 'N/A'), ' x ', COALESCE(size_y::text, 'N/A')) = $2
+            `, [id, size]);
           }
         }
 
@@ -492,6 +496,7 @@ serve({
         const customerName = urlParams.get('customerName');
         const size = urlParams.get('size');
         const quoteId = urlParams.get('quoteId');
+        const type = urlParams.get('type') || 'quote'; // Default to quote for backward compatibility
 
         if (!customerName || !size || !quoteId) {
           return new Response(JSON.stringify({ error: 'Missing required parameters' }), { 
@@ -500,14 +505,31 @@ serve({
           });
         }
 
-        // Query database for files
+        // Query database for files using junction table, excluding deleted files
+        console.log(`Looking for files associated with ${type}Id: ${quoteId}`);
+        console.log(`Query parameters: customerName=${customerName}, size=${size}, quoteId=${quoteId}, type=${type}`);
+        
+        // Build the query based on type
+        const isJob = type === 'job';
+        const idField = isJob ? 'job_id' : 'quote_id';
+        const associationType = isJob ? 'job' : 'quote';
+        
         const result = await client.query(`
-          SELECT filename, filelocation, uploadedat 
-          FROM customer_file_index 
-          WHERE filelocation LIKE $1
-          ORDER BY uploadedat DESC
-        `, [`%${customerName}/${size}/${quoteId}/files/%`]);
+          SELECT cf.filename, cf.filelocation, cf.uploadedat, lfa.uploaded_for_context
+          FROM customer_file_index cf
+          JOIN line_file_associations lfa ON cf.id = lfa.file_id
+          WHERE lfa.${idField} = $1 AND lfa.association_type = $2
+            AND cf.deleted = FALSE 
+            AND lfa.deleted_from_association = FALSE
+          ORDER BY cf.uploadedat DESC
+        `, [quoteId, associationType]);
 
+        console.log(`Junction table query found ${result.rows.length} files for ${type}Id: ${quoteId}`);
+        if (result.rows.length > 0) {
+          console.log('Files found via junction table:', result.rows.map(r => r.filename));
+        }
+        
+        // Return junction table results (may be empty if all files are deleted from association)
         return new Response(JSON.stringify(result.rows), { headers });
       } catch (error: any) {
         console.error('Get files error:', error);
@@ -725,6 +747,42 @@ serve({
       }
     }
 
+    // Debug endpoint to inspect customer_file_index
+    if (url.pathname === '/api/debug-files' && req.method === 'GET') {
+      try {
+        const urlParams = new URLSearchParams(url.search);
+        const customerName = urlParams.get('customerName');
+        
+        if (!customerName) {
+          return new Response(JSON.stringify({ error: 'Missing customerName parameter' }), { 
+            status: 400, 
+            headers 
+          });
+        }
+
+        // Get all files for this customer
+        const result = await client.query(`
+          SELECT filename, filelocation, uploadedat, notes
+          FROM customer_file_index 
+          WHERE filelocation LIKE $1
+          ORDER BY uploadedat DESC
+          LIMIT 50
+        `, [`%${customerName}%`]);
+
+        return new Response(JSON.stringify({
+          customer: customerName,
+          totalFiles: result.rows.length,
+          files: result.rows
+        }), { headers });
+      } catch (error: any) {
+        console.error('Debug files error:', error);
+        return new Response(JSON.stringify({ error: error.message }), { 
+          status: 500, 
+          headers 
+        });
+      }
+    }
+
     // Build a prepress package: XML + PDF folder copy for quotes or jobs
     if (url.pathname === '/api/prepress-package' && req.method === 'POST') {
       try {
@@ -775,7 +833,7 @@ serve({
             const res = await client.query('SELECT * FROM quotes WHERE lineidentifier = $1 LIMIT 1', [lineId]);
             row = res.rows[0];
           } else {
-            const res = await client.query('SELECT * FROM job_lines WHERE lineidentifier = $1 LIMIT 1', [lineId]);
+            const res = await client.query('SELECT * FROM jobs WHERE job_number = $1 LIMIT 1', [lineId]);
             row = res.rows[0];
           }
 
@@ -805,17 +863,26 @@ serve({
             (row.lineidentifiernoprefix ? `  <lineIdentifierNoPrefix>${xmlEscape(row.lineidentifiernoprefix)}</lineIdentifierNoPrefix>\n` : '') +
             (type === 'quote'
               ? `  <QuoteId>${xmlEscape(row.quoteid || id)}</QuoteId>\n  <QuoteLineId>${xmlEscape(row.quotelineid || '')}</QuoteLineId>\n  <quoteDescription>${xmlEscape(row.quotedescription || '')}</quoteDescription>\n  <quoteDate>${xmlEscape(row.quotedate || '')}</quoteDate>\n`
-              : `  <jobId>${xmlEscape(row.jobid || id)}</jobId>\n  <jobLineId>${xmlEscape(row.joblineid || '')}</jobLineId>\n  <jobName>${xmlEscape(row.jobname || '')}</jobName>\n`)
+              : `  <jobId>${xmlEscape(row.jobid || id)}</jobId>\n  <jobLineId>${xmlEscape(row.joblineid || '')}</jobLineId>\n  <jobName>${xmlEscape(row.jobname || '')}</jobName>\n  <orderDate>${xmlEscape(row.orderdate || '')}</orderDate>\n  <dueDate>${xmlEscape(row.duedate || '')}</dueDate>\n`)
             +
+            (row.recipeid ? `  <recipeId>${xmlEscape(row.recipeid)}</recipeId>\n` : '') +
             `  <customerId>${xmlEscape(row.customerid || '')}</customerId>\n` +
             `  <customerName>${xmlEscape(row.customername || '')}</customerName>\n` +
             (row.customercontactname ? `  <customerContactName>${xmlEscape(row.customercontactname)}</customerContactName>\n` : '') +
             (row.customercontactemail ? `  <customerContactEmail>${xmlEscape(row.customercontactemail)}</customerContactEmail>\n` : '') +
             (row.accountmanagername ? `  <accountManagerName>${xmlEscape(row.accountmanagername)}</accountManagerName>\n` : '') +
             (row.accountmanageremail ? `  <accountManagerEmail>${xmlEscape(row.accountmanageremail)}</accountManagerEmail>\n` : '') +
+            (row.itemid ? `  <itemId>${xmlEscape(row.itemid)}</itemId>\n` : '') +
+            (row.productid ? `  <productId>${xmlEscape(row.productid)}</productId>\n` : '') +
+            (row.productcode ? `  <productCode>${xmlEscape(row.productcode)}</productCode>\n` : '') +
+            (row.productname ? `  <productName>${xmlEscape(row.productname)}</productName>\n` : '') +
             `  <quantity>${xmlEscape(row.quantity || '')}</quantity>\n` +
             (row.sizexmm ? `  <sizeXmm>${xmlEscape(row.sizexmm)}</sizeXmm>\n` : '') +
             (row.sizeymm ? `  <sizeYmm>${xmlEscape(row.sizeymm)}</sizeYmm>\n` : '') +
+            (row.sibling ? `  <sibling>${xmlEscape(row.sibling)}</sibling>\n` : '') +
+            (row.siblingcount ? `  <siblingCount>${xmlEscape(row.siblingcount)}</siblingCount>\n` : '') +
+            (row.revision ? `  <revision>${xmlEscape(row.revision)}</revision>\n` : '') +
+            (row.approvers ? `  <approvers>${xmlEscape(row.approvers)}</approvers>\n` : '') +
             (row.filename ? `  <fileName>${xmlEscape(row.filename)}</fileName>\n` : '') +
             (row.filelocation ? `  <fileLocation>${xmlEscape(row.filelocation)}</fileLocation>\n` : '') +
             (row.materialname ? `  <materialName>${xmlEscape(row.materialname)}</materialName>\n` : '') +
@@ -829,24 +896,89 @@ serve({
             (row.kinds ? `  <kinds>${xmlEscape(row.kinds)}</kinds>\n` : '') +
             (row.rolldirection ? `  <RollDirection>${xmlEscape(row.rolldirection)}</RollDirection>\n` : '') +
             `  <lineDescription>${xmlEscape(row.linedescription || '')}</lineDescription>\n` +
+            (type === 'job' && row.quoteid ? `  <quoteId>${xmlEscape(row.quoteid)}</quoteId>\n` : '') +
             (row.deliverytoaddress ? `  <deliveryToAddress>${xmlEscape(row.deliverytoaddress)}</deliveryToAddress>\n` : '') +
             (row.profitcentrename ? `  <profitCentreName>${xmlEscape(row.profitcentrename)}</profitCentreName>\n` : '') +
+            (row.customerfolderid ? `  <customerFolderId>${xmlEscape(row.customerfolderid)}</customerFolderId>\n` : '') +
+            (row.status ? `  <status>${xmlEscape(row.status)}</status>\n` : '') +
+            (row.changehistory ? `  <changeHistory>${xmlEscape(row.changehistory)}</changeHistory>\n` : '') +
+            (row.notes ? `  <notes>${xmlEscape(row.notes)}</notes>\n` : '') +
             `</jobline>\n`;
 
           const xmlPath = path.join(outDir, `${folderName}.xml`);
           await Bun.write(xmlPath, xml);
 
-          // Copy entire files folder alongside
-          const filesDir = path.join(BASE_FILES_PATH, String(row.customername || ''), String(size), String(id), 'files');
+          // Copy only files that are associated with this specific quote/job line via junction table
           const destFilesDir = path.join(outDir, folderName);
-          cpDir(filesDir, destFilesDir);
+          ensureDir(destFilesDir);
+          
+          // Get files from junction table that belong to this quote/job
+          const associatedFiles = await client.query(`
+            SELECT cf.filename, cf.filelocation 
+            FROM customer_file_index cf
+            JOIN line_file_associations lfa ON cf.id = lfa.file_id
+            WHERE lfa.${type === 'quote' ? 'quote_id' : 'job_id'} = $1 
+              AND lfa.association_type = $2
+            ORDER BY cf.uploadedat DESC
+          `, [type === 'quote' ? (row.quoteid || id) : (row.jobid || id), type]);
+          
+          console.log(`Found ${associatedFiles.rows.length} associated files for ${type} ${id}`);
+          
+          // Fallback: if no files found via junction table, try legacy path-based approach
+          if (associatedFiles.rows.length === 0) {
+            console.log(`No files found via junction table, trying legacy path search...`);
+            const legacyFiles = await client.query(`
+              SELECT filename, filelocation 
+              FROM customer_file_index 
+              WHERE filelocation LIKE $1
+              ORDER BY uploadedat DESC
+            `, [`%${row.customername}/${size}/${id}/files/%`]);
+            
+            console.log(`Legacy search found ${legacyFiles.rows.length} files`);
+            
+            // Copy each tracked file individually
+            for (const fileRow of legacyFiles.rows) {
+              const sourceFile = fileRow.filelocation;
+              const fileName = fileRow.filename;
+              const destFile = path.join(destFilesDir, fileName);
+              
+              try {
+                if (fs.existsSync(sourceFile)) {
+                  fs.copyFileSync(sourceFile, destFile);
+                  console.log(`Copied (legacy): ${fileName}`);
+                } else {
+                  console.warn(`File not found: ${sourceFile}`);
+                }
+              } catch (error) {
+                console.error(`Error copying file ${fileName}:`, error);
+              }
+            }
+          } else {
+            // Copy each associated file individually
+            for (const fileRow of associatedFiles.rows) {
+              const sourceFile = fileRow.filelocation;
+              const fileName = fileRow.filename;
+              const destFile = path.join(destFilesDir, fileName);
+              
+              try {
+                if (fs.existsSync(sourceFile)) {
+                  fs.copyFileSync(sourceFile, destFile);
+                  console.log(`Copied: ${fileName}`);
+                } else {
+                  console.warn(`File not found: ${sourceFile}`);
+                }
+              } catch (error) {
+                console.error(`Error copying file ${fileName}:`, error);
+              }
+            }
+          }
 
           // Mark this line as processed so it appears in Archive
           try {
             if (type === 'quote') {
               await client.query('UPDATE quotes SET processed = true WHERE lineidentifier = $1', [lineId]);
             } else {
-              await client.query('UPDATE job_lines SET processed = true WHERE lineidentifier = $1', [lineId]);
+              await client.query('UPDATE jobs SET processed = true WHERE job_number = $1', [lineId]);
             }
           } catch (e) {
             console.warn('Failed to mark processed for', type, lineId, e);
@@ -898,20 +1030,20 @@ serve({
     if (url.pathname === '/api/delete-file' && req.method === 'DELETE') {
       try {
         const body = await req.json();
-        const { filename, customerName, size, quoteId } = body;
+        const { filename, customerName, size, quoteId, type, deleteType } = body;
 
-        if (!filename || !customerName || !size || !quoteId) {
+        if (!filename || !customerName || !size || !quoteId || !type) {
           return new Response(JSON.stringify({ error: 'Missing required fields' }), { 
             status: 400, 
             headers 
           });
         }
 
-        // First, get the actual file location from the database
+        // Get the file information from database
         const fileResult = await client.query(`
-          SELECT filelocation 
-          FROM customer_file_index 
-          WHERE filename = $1 AND filelocation LIKE $2
+          SELECT cf.id, cf.filelocation 
+          FROM customer_file_index cf
+          WHERE cf.filename = $1 AND cf.filelocation LIKE $2 AND cf.deleted = FALSE
           LIMIT 1
         `, [filename, `%${customerName}/${size}/${quoteId}/files/%`]);
 
@@ -922,30 +1054,77 @@ serve({
           });
         }
 
+        const fileId = fileResult.rows[0].id;
         const actualFilePath = fileResult.rows[0].filelocation;
 
-        // Delete file from filesystem
-        const file = Bun.file(actualFilePath);
-        if (await file.exists()) {
-          const fs = require('fs');
-          fs.unlinkSync(actualFilePath);
-          console.log(`Deleted file from filesystem: ${actualFilePath}`);
+        // Two deletion modes based on user choice
+        if (deleteType === 'association') {
+          // Mode 1: Delete only from this job/quote association
+          console.log(`Marking file as deleted from ${type} association: ${filename}`);
+          
+          if (type === 'quote') {
+            await client.query(`
+              UPDATE line_file_associations 
+              SET deleted_from_association = TRUE,
+                  deleted_from_association_at = NOW(),
+                  deleted_from_association_by = 'user'
+              WHERE file_id = $1 AND quote_id = $2 AND association_type = 'quote'
+            `, [fileId, quoteId]);
+          } else if (type === 'job') {
+            await client.query(`
+              UPDATE line_file_associations 
+              SET deleted_from_association = TRUE,
+                  deleted_from_association_at = NOW(),
+                  deleted_from_association_by = 'user'
+              WHERE file_id = $1 AND job_id = $2 AND association_type = 'job'
+            `, [fileId, quoteId]);
+          }
+
+          return new Response(JSON.stringify({ 
+            success: true, 
+            message: `File removed from ${type} (file still available in customer folder)`,
+            deleteType: 'association'
+          }), { headers });
+
         } else {
-          console.log(`File not found on filesystem: ${actualFilePath}`);
+          // Mode 2: Delete from customer folder completely
+          console.log(`Deleting file completely from customer folder: ${filename}`);
+          
+          // Mark file as deleted in customer_file_index
+          await client.query(`
+            UPDATE customer_file_index 
+            SET deleted = TRUE,
+                deleted_at = NOW(),
+                deleted_by = 'user'
+            WHERE id = $1
+          `, [fileId]);
+
+          // Mark all associations as deleted
+          await client.query(`
+            UPDATE line_file_associations 
+            SET deleted_from_association = TRUE,
+                deleted_from_association_at = NOW(),
+                deleted_from_association_by = 'user'
+            WHERE file_id = $1
+          `, [fileId]);
+
+          // Delete physical file from filesystem
+          const file = Bun.file(actualFilePath);
+          if (await file.exists()) {
+            const fs = require('fs');
+            fs.unlinkSync(actualFilePath);
+            console.log(`Deleted physical file: ${actualFilePath}`);
+          } else {
+            console.log(`Physical file not found: ${actualFilePath}`);
+          }
+
+          return new Response(JSON.stringify({ 
+            success: true, 
+            message: 'File deleted completely from customer folder',
+            deleteType: 'complete'
+          }), { headers });
         }
 
-        // Delete file record from database
-        await client.query(`
-          DELETE FROM customer_file_index 
-          WHERE filename = $1 AND filelocation = $2
-        `, [filename, actualFilePath]);
-
-        console.log(`Deleted file record from database: ${filename}`);
-
-        return new Response(JSON.stringify({ 
-          success: true, 
-          message: 'File deleted successfully' 
-        }), { headers });
       } catch (error: any) {
         console.error('Delete file error:', error);
         return new Response(JSON.stringify({ error: error.message }), { 
@@ -972,20 +1151,20 @@ serve({
         let hasFiles = false;
 
         for (const lineId of identifiers) {
-          // Get job line details and associated quote
+          // Get job details and associated quote
           const jobRes = await client.query(`
-            SELECT jl.*, c.customername
-            FROM job_lines jl 
-            LEFT JOIN customers c ON jl.customerid = c.customerid 
-            WHERE jl.lineidentifier = $1 LIMIT 1
+            SELECT j.*, c.name as customername
+            FROM jobs j 
+            LEFT JOIN customers c ON j.customer_id = c.customer_id 
+            WHERE j.job_number = $1 LIMIT 1
           `, [lineId]);
           
           if (jobRes.rows.length === 0) {
             continue;
           }
 
-          const jobLine = jobRes.rows[0];
-          const quoteId = jobLine.quoteid;
+          const job = jobRes.rows[0];
+          const quoteId = job.quote_id;
           
           if (!quoteId) {
             continue;
@@ -995,7 +1174,7 @@ serve({
           const quoteFiles = await client.query(`
             SELECT COUNT(*) as file_count FROM customer_file_index 
             WHERE filelocation LIKE $1
-          `, [`%${jobLine.customername}/${size}/${quoteId}/files/%`]);
+          `, [`%${job.customername}/${size}/${quoteId}/files/%`]);
 
           if (quoteFiles.rows[0] && parseInt(quoteFiles.rows[0].file_count) > 0) {
             hasFiles = true;
@@ -1034,12 +1213,12 @@ serve({
           .filter((s: string) => !!s);
 
         for (const lineId of identifiers) {
-          // Get job line details and associated quote
+          // Get job details and associated quote
           const jobRes = await client.query(`
-            SELECT jl.*, c.customername
-            FROM job_lines jl 
-            LEFT JOIN customers c ON jl.customerid = c.customerid 
-            WHERE jl.lineidentifier = $1 LIMIT 1
+            SELECT j.*, c.name as customername
+            FROM jobs j 
+            LEFT JOIN customers c ON j.customer_id = c.customer_id 
+            WHERE j.job_number = $1 LIMIT 1
           `, [lineId]);
           
           if (jobRes.rows.length === 0) {
@@ -1047,38 +1226,22 @@ serve({
             continue;
           }
 
-          const jobLine = jobRes.rows[0];
-          const quoteId = jobLine.quoteid;
+          const job = jobRes.rows[0];
+          const quoteId = job.quote_id;
           
           if (!quoteId) {
             errors.push(`No quote ID found for job line ${lineId}`);
             continue;
           }
 
-          // Check if files were already imported to avoid duplication
-          const existingFiles = await client.query(`
-            SELECT filename FROM customer_file_index 
-            WHERE filelocation LIKE $1 AND notes LIKE $2
-          `, [`%${jobLine.customername}/${size}/${jobId}/files/%`, `%Imported from quote ${quoteId}%`]);
-
-          if (existingFiles.rows.length > 0) {
-            errors.push(`Files already imported for job line ${lineId} (found ${existingFiles.rows.length} existing files)`);
-            continue;
-          }
-
-          // Find quote files
+          // Get quote files from the quote directory
           const quoteFiles = await client.query(`
             SELECT filename, filelocation FROM customer_file_index 
             WHERE filelocation LIKE $1
-          `, [`%${jobLine.customername}/${size}/${quoteId}/files/%`]);
+          `, [`%${job.customername}/${size}/${quoteId}/files/%`]);
 
-          if (quoteFiles.rows.length === 0) {
-            errors.push(`No files found for quote ${quoteId}, size ${size}`);
-            continue;
-          }
-
-          // Copy files from quote directory to job directory
-          const jobFilesDir = path.join(BASE_FILES_PATH, String(jobLine.customername), String(size), String(jobId), 'files');
+          // Create job files directory
+          const jobFilesDir = path.join(BASE_FILES_PATH, String(job.customername), String(size), String(jobId), 'files');
           
           // Create job files directory if it doesn't exist
           try { fs.mkdirSync(jobFilesDir, { recursive: true }); } catch {}
@@ -1102,18 +1265,20 @@ serve({
                   )
                 `, [fileName, destFile, `Imported from quote ${quoteId} for job line ${lineId}`]);
 
-                // Generate PDF thumbnail if it's a PDF
-                if (/\.pdf$/i.test(fileName)) {
-                  ensurePdfThumbnail(destFile).catch(() => {});
-                }
-
-                copiedFiles.push(fileName);
+                copiedFiles.push(`${fileName} -> ${destFile}`);
               } else {
                 errors.push(`Source file not found: ${sourceFile}`);
               }
             } catch (err) {
               errors.push(`Failed to copy ${fileName}: ${err}`);
             }
+          }
+
+          try {
+            // Mark job as processed if needed
+            await client.query('UPDATE jobs SET processed = true WHERE job_number = $1', [lineId]);
+          } catch (e) {
+            console.warn('Failed to mark processed for job', lineId, e);
           }
         }
 
@@ -1136,37 +1301,40 @@ serve({
         const company = url.searchParams.get('company');
         const filter = url.searchParams.get('filter');
         
-        let whereClause = 'jl.jobid IS NOT NULL';
+        let whereClause = 'j.job_id IS NOT NULL';
         let queryParams: any[] = [limit];
         let paramIndex = 1;
         
         // Add company-specific filtering
         if (company === 'labex' && filter) {
-          whereClause += ` AND jl.lineidentifier LIKE $${++paramIndex}`;
+          whereClause += ` AND j.job_number LIKE $${++paramIndex}`;
           queryParams.push(`${filter}%`);
         }
         
         const result = await client.query(`
           SELECT 
-            jl.id,
-            jl.lineidentifier,
-            jl.jobid,
-            jl.jobname,
-            jl.quantity,
-            jl.sizexmm,
-            jl.sizeymm,
-            jl.materialname,
-            jl.finishingname,
-            jl.tool,
-            jl.duedate,
-            jl.orderdate,
-            jl.processed,
-            c.customername,
-            jl.quoteid
-          FROM job_lines jl
-          LEFT JOIN customers c ON jl.customerid = c.customerid
+            j.job_id as id,
+            j.job_number as lineidentifier,
+            j.job_id as jobid,
+            COALESCE(j.job_name, j.product_name) as jobname,
+            j.qty_ordered as quantity,
+            j.size_x as sizexmm,
+            j.size_y as sizeymm,
+            COALESCE(j.material_name, m.material_name) as materialname,
+            COALESCE(j.finishing_name, f.finishing_type) as finishingname,
+            COALESCE(j.tool, t.die_number) as tool,
+            j.due_date as duedate,
+            j.order_date as orderdate,
+            j.processed,
+            c.name as customername,
+            j.quote_id as quoteid
+          FROM jobs j
+          LEFT JOIN customers c ON j.customer_id = c.customer_id
+          LEFT JOIN materials m ON j.material_id = m.material_id
+          LEFT JOIN finishing_options f ON j.finishing_id = f.finishing_id
+          LEFT JOIN tools_library t ON j.tool_id = t.tool_id
           WHERE ${whereClause}
-          ORDER BY jl.orderdate DESC, jl.jobid DESC
+          ORDER BY j.order_date DESC, j.job_id DESC
           LIMIT $1
         `, queryParams);
 
@@ -1174,6 +1342,9 @@ serve({
         const kanbanData = result.rows.map(row => {
           // Check if tool field exists and has data, otherwise use a placeholder
           const toolValue = row.tool && row.tool.trim() !== '' ? row.tool : 'Tool not specified';
+          const due = row.duedate ? new Date(row.duedate) : undefined;
+          const now = new Date();
+          const overdueDate = due && due < now ? due.toISOString() : undefined;
           
           return {
             id: row.id,
@@ -1182,6 +1353,8 @@ serve({
             material: row.materialname,
             finishing: row.finishingname,
             readyDate: row.duedate ? new Date(row.duedate).toLocaleDateString() : undefined,
+            dueDate: row.duedate || undefined,
+            overdueDate,
             orderDate: row.orderdate,
             quantity: row.quantity,
             tool: toolValue,
@@ -1198,6 +1371,277 @@ serve({
       } catch (error: any) {
         console.error('Kanban data error:', error);
         return new Response(JSON.stringify({ error: error.message }), { status: 500, headers });
+      }
+    }
+
+    // Debug endpoint to check file associations
+    if (url.pathname === '/api/debug-associations' && req.method === 'GET') {
+      try {
+        const urlParams = new URLSearchParams(url.search);
+        const quoteId = urlParams.get('quoteId');
+        const customerName = urlParams.get('customerName');
+        const size = urlParams.get('size');
+        
+        if (!quoteId) {
+          return new Response(JSON.stringify({ error: 'Missing quoteId parameter' }), { 
+            status: 400, 
+            headers 
+          });
+        }
+
+        // Check association table entries
+        const associationResult = await client.query(`
+          SELECT 
+            cf.id, cf.filename, cf.filelocation, cf.deleted as file_deleted,
+            lfa.quote_id, lfa.job_id, lfa.association_type, 
+            lfa.deleted_from_association, lfa.deleted_from_association_at
+          FROM customer_file_index cf
+          JOIN line_file_associations lfa ON cf.id = lfa.file_id
+          WHERE lfa.quote_id = $1 OR lfa.job_id = $1
+          ORDER BY cf.filename
+        `, [quoteId]);
+
+        // Also check what the main get-files query would return
+        let mainQueryResult = [];
+        if (customerName && size) {
+          const mainResult = await client.query(`
+            SELECT cf.filename, cf.filelocation, cf.uploadedat, lfa.uploaded_for_context
+            FROM customer_file_index cf
+            JOIN line_file_associations lfa ON cf.id = lfa.file_id
+            WHERE lfa.quote_id = $1 AND lfa.association_type = 'quote'
+              AND cf.deleted = FALSE 
+              AND lfa.deleted_from_association = FALSE
+            ORDER BY cf.uploadedat DESC
+          `, [quoteId]);
+          mainQueryResult = mainResult.rows;
+        }
+
+        // Check legacy search too
+        let legacyResult = [];
+        if (customerName && size) {
+          const searchPattern = `%${customerName}/${size}/${quoteId}/files/%`;
+          const legacy = await client.query(`
+            SELECT filename, filelocation, uploadedat 
+            FROM customer_file_index 
+            WHERE filelocation LIKE $1 AND deleted = FALSE
+            ORDER BY uploadedat DESC
+          `, [searchPattern]);
+          legacyResult = legacy.rows;
+        }
+
+        return new Response(JSON.stringify({
+          associations: associationResult.rows,
+          mainQueryResult,
+          legacyResult,
+          params: { quoteId, customerName, size }
+        }), { headers });
+      } catch (error: any) {
+        console.error('Debug files error:', error);
+        return new Response(JSON.stringify({ error: error.message }), { 
+          status: 500, 
+          headers 
+        });
+      }
+    }
+
+    // Materials endpoint
+    if (url.pathname === '/api/materials' && req.method === 'GET') {
+      try {
+        const result = await client.query(`
+          SELECT 
+            material_id,
+            material_code,
+            material_name,
+            substrate_type,
+            adhesive_type,
+            handling,
+            weight_gsm,
+            width_mm,
+            length_mm,
+            coating,
+            grain_direction,
+            glossy_level,
+            conductive,
+            white_material,
+            cost_aud,
+            stock,
+            reorder_level,
+            lead_time_days,
+            pricing_unit,
+            aliases
+          FROM materials
+          ORDER BY material_name ASC
+        `);
+
+        return new Response(JSON.stringify({ 
+          success: true, 
+          materials: result.rows,
+          total: result.rows.length
+        }), { headers });
+      } catch (error: any) {
+        console.error('Materials error:', error);
+        return new Response(JSON.stringify({ error: error.message }), { 
+          status: 500, 
+          headers 
+        });
+      }
+    }
+
+    // Create new material
+    if (url.pathname === '/api/materials' && req.method === 'POST') {
+      try {
+        const body = await req.json();
+        const {
+          material_code, material_name, substrate_type, adhesive_type, handling,
+          weight_gsm, width_mm, length_mm, coating, grain_direction, glossy_level,
+          conductive, white_material, cost_aud, stock, 
+          reorder_level, lead_time_days, pricing_unit, aliases
+        } = body;
+
+        if (!material_name) {
+          return new Response(JSON.stringify({ error: 'Material name is required' }), {
+            status: 400,
+            headers
+          });
+        }
+
+        // Generate material ID
+        const material_id = `MAT-${Date.now()}`;
+
+        const result = await client.query(`
+          INSERT INTO materials (
+            material_id, material_code, material_name, substrate_type, adhesive_type,
+            handling, weight_gsm, width_mm, length_mm, coating, grain_direction,
+            glossy_level, conductive, white_material, cost_aud,
+            stock, reorder_level, lead_time_days, pricing_unit, aliases
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+          RETURNING *
+        `, [
+          material_id, material_code, material_name, substrate_type, adhesive_type,
+          handling, weight_gsm, width_mm, length_mm, coating, grain_direction,
+          glossy_level, conductive, white_material, cost_aud,
+          stock, reorder_level, lead_time_days, pricing_unit, aliases
+        ]);
+
+        return new Response(JSON.stringify({
+          success: true,
+          material: result.rows[0]
+        }), { headers });
+      } catch (error: any) {
+        console.error('Create material error:', error);
+        return new Response(JSON.stringify({ error: error.message }), {
+          status: 500,
+          headers
+        });
+      }
+    }
+
+    // Update material
+    if (url.pathname.startsWith('/api/materials/') && req.method === 'PUT') {
+      try {
+        const materialId = url.pathname.split('/').pop();
+        const body = await req.json();
+        const {
+          material_code, material_name, substrate_type, adhesive_type, handling,
+          weight_gsm, width_mm, length_mm, coating, grain_direction, glossy_level,
+          conductive, white_material, cost_aud, stock,
+          reorder_level, lead_time_days, pricing_unit, aliases
+        } = body;
+
+        if (!material_name) {
+          return new Response(JSON.stringify({ error: 'Material name is required' }), {
+            status: 400,
+            headers
+          });
+        }
+
+        const result = await client.query(`
+          UPDATE materials SET
+            material_code = $2, material_name = $3, substrate_type = $4, adhesive_type = $5,
+            handling = $6, weight_gsm = $7, width_mm = $8, length_mm = $9, coating = $10,
+            grain_direction = $11, glossy_level = $12, conductive = $13, white_material = $14,
+            cost_aud = $15, stock = $16, reorder_level = $17, lead_time_days = $18,
+            pricing_unit = $19, aliases = $20
+          WHERE material_id = $1
+          RETURNING *
+        `, [
+          materialId, material_code, material_name, substrate_type, adhesive_type,
+          handling, weight_gsm, width_mm, length_mm, coating, grain_direction,
+          glossy_level, conductive, white_material, cost_aud,
+          stock, reorder_level, lead_time_days, pricing_unit, aliases
+        ]);
+
+        if (result.rows.length === 0) {
+          return new Response(JSON.stringify({ error: 'Material not found' }), {
+            status: 404,
+            headers
+          });
+        }
+
+        return new Response(JSON.stringify({
+          success: true,
+          material: result.rows[0]
+        }), { headers });
+      } catch (error: any) {
+        console.error('Update material error:', error);
+        return new Response(JSON.stringify({ error: error.message }), {
+          status: 500,
+          headers
+        });
+      }
+    }
+
+    // Import materials from job lines
+    if (url.pathname === '/api/import-materials-from-jobs' && req.method === 'POST') {
+      try {
+        // Get distinct material names from jobs that aren't already in materials table
+        const jobMaterials = await client.query(`
+          SELECT DISTINCT j.material_name
+          FROM jobs j
+          WHERE j.material_name IS NOT NULL 
+            AND j.material_name != ''
+            AND j.material_name != 'nan'
+            AND NOT EXISTS (
+              SELECT 1 FROM materials m 
+              WHERE LOWER(m.material_name) = LOWER(j.material_name)
+            )
+          ORDER BY j.material_name
+        `);
+
+        let imported = 0;
+        for (const row of jobMaterials.rows) {
+          const materialName = row.material_name.trim();
+          if (materialName) {
+            const material_id = `MAT-JOB-${Date.now()}-${imported}`;
+            const material_code = materialName.replace(/[^A-Za-z0-9]/g, '').toUpperCase().substring(0, 10);
+            
+            await client.query(`
+              INSERT INTO materials (
+                material_id, material_code, material_name, substrate_type, adhesive_type,
+                handling, weight_gsm, width_mm, length_mm, coating,
+                cost_aud, stock, reorder_level, lead_time_days,
+                pricing_unit, aliases
+              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+            `, [
+              material_id, material_code, materialName, 'paper', 'permanent',
+              'hand_applied', 80, 1000, 1000, 'matte',
+              0, 0, 10, 7, 'sqm', ''
+            ]);
+            imported++;
+          }
+        }
+
+        return new Response(JSON.stringify({
+          success: true,
+          imported,
+          message: `Imported ${imported} new materials from job lines`
+        }), { headers });
+      } catch (error: any) {
+        console.error('Import materials error:', error);
+        return new Response(JSON.stringify({ error: error.message }), {
+          status: 500,
+          headers
+        });
       }
     }
 

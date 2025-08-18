@@ -6,6 +6,7 @@ import { API_BASE_URL } from '../config/api';
 import { Textarea } from './ui/textarea';
 import { Button } from './ui/button';
 import { SimpleNotes } from './SimpleNotes';
+import { DeleteFileModal } from './DeleteFileModal';
 
 interface SizeGroup {
   size: string;
@@ -16,6 +17,7 @@ interface SizeGroup {
   materials: string;
   lineIdentifiers: string;
   descriptions: string;
+  supply?: string;
   notes?: string;
   processed?: boolean;
 }
@@ -78,6 +80,11 @@ export function ItemCard({
   const [deleting, setDeleting] = useState<Set<string>>(new Set()); // Track file deletion animations
   const [uploadingFiles, setUploadingFiles] = useState<Set<string>>(new Set()); // Track files being uploaded
   const [quoteFilesAvailable, setQuoteFilesAvailable] = useState<Record<string, boolean>>({}); // Track which size groups have quote files available
+  
+  // Delete modal state
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [fileToDelete, setFileToDelete] = useState<{ uploadKey: string; fileName: string } | null>(null);
+  
   // Notes functionality moved to SimpleNotes component
  
 
@@ -167,8 +174,8 @@ export function ItemCard({
     console.log('Loading existing files for uploadKey:', uploadKey);
     
     try {
-      console.log(`Loading files for: customerName=${customerName}, size=${size}, quoteId=${id}`);
-      const response = await fetch(`${API_BASE_URL}/api/get-files?customerName=${encodeURIComponent(customerName)}&size=${encodeURIComponent(size)}&quoteId=${encodeURIComponent(id)}`);
+      console.log(`Loading files for: customerName=${customerName}, size=${size}, quoteId=${id}, type=${type}`);
+      const response = await fetch(`${API_BASE_URL}/api/get-files?customerName=${encodeURIComponent(customerName)}&size=${encodeURIComponent(size)}&quoteId=${encodeURIComponent(id)}&type=${encodeURIComponent(type)}`);
       
       if (response.ok) {
         const files: FileInfo[] = await response.json();
@@ -195,7 +202,7 @@ export function ItemCard({
     } catch (error) {
       console.error('Error loading existing files:', error);
     }
-  }, [customerName, id, fileThumbnails]);
+  }, [customerName, id, fileThumbnails, type]);
 
   // Check if quote files are available for a size group (jobs only)
   const checkQuoteFilesAvailable = useCallback(async (size: string) => {
@@ -430,13 +437,22 @@ export function ItemCard({
     }
   }, [API_BASE_URL, id, onDataChange, fileThumbnails, loadExistingFiles]);
 
-  // Optimized file deletion with immediate local updates
-  const handleDeleteFile = useCallback(async (uploadKey: string, fileName: string) => {
-    if (!confirm(`Are you sure you want to delete "${fileName}"?`)) {
-      return;
-    }
+  // Open delete confirmation modal
+  const handleDeleteFile = useCallback((uploadKey: string, fileName: string) => {
+    setFileToDelete({ uploadKey, fileName });
+    setDeleteModalOpen(true);
+  }, []);
 
+  // Handle the actual file deletion after modal confirmation
+  const handleConfirmDelete = useCallback(async (deleteType: 'association' | 'complete') => {
+    if (!fileToDelete) return;
+    
+    const { uploadKey, fileName } = fileToDelete;
     const deleteKey = `${uploadKey}-${fileName}`;
+    
+    // Close modal
+    setDeleteModalOpen(false);
+    setFileToDelete(null);
     
     // Start delete processing animation
     setDeleting(prev => new Set(prev).add(deleteKey));
@@ -463,7 +479,9 @@ export function ItemCard({
           filename: fileName,
           customerName,
           size: extractedSize,
-          quoteId: id
+          quoteId: id,
+          type,
+          deleteType
         }),
       });
 
@@ -476,13 +494,24 @@ export function ItemCard({
       const result = await response.json();
       console.log('Delete success:', result);
 
-      // File already removed from local state, just trigger refresh to sync with server
+      // For association deletions, explicitly reload files to ensure proper filtering
+      if (result.deleteType === 'association') {
+        const extractedSize = uploadKey.split('-').slice(1).join('-');
+        console.log('Reloading files after association deletion for size:', extractedSize);
+        await loadExistingFiles(extractedSize);
+      }
+
+      // Trigger parent data refresh
       if (onDataChange) {
         setTimeout(() => onDataChange(), 100);
       }
 
-      // Show success message
-      alert(`Successfully deleted "${fileName}"`);
+      // Show success message based on delete type
+      const successMessage = result.deleteType === 'association' 
+        ? `Removed "${fileName}" from this ${type} (file still available in customer folder)`
+        : `Permanently deleted "${fileName}" from customer folder`;
+      
+      alert(successMessage);
     } catch (error) {
       console.error('Error deleting file:', error);
       
@@ -508,7 +537,13 @@ export function ItemCard({
         return next; 
       });
     }
-  }, [customerName, id, onDataChange, fileThumbnails]);
+  }, [fileToDelete, customerName, id, onDataChange, fileThumbnails, type, loadExistingFiles]);
+
+  // Handle modal close
+  const handleCloseDeleteModal = useCallback(() => {
+    setDeleteModalOpen(false);
+    setFileToDelete(null);
+  }, []);
 
   // Optimized line submission with better error handling
   const handleSubmitLine = useCallback(async (sizeGroup: SizeGroup, index: number) => {
@@ -563,11 +598,32 @@ export function ItemCard({
     }
   }, [id, type, onDataChange]);
 
-  const formatDescription = useCallback((description: string) => {
-    return description.split('||').map((part, index) => (
+  const formatDescription = useCallback((description: string, supply?: string) => {
+    let content = description;
+    
+    // Check if supply information is already in the description
+    const hasSupplyInDescription = description.toLowerCase().includes('supply:');
+    
+    // If there's supply information and it's not already in the description, append it
+    if (supply && supply.trim() && supply.trim() !== '' && !hasSupplyInDescription) {
+      content = `${description} | Supply: ${supply}`;
+    }
+    
+    // Split by both single and double pipes, then filter out empty parts
+    const parts = content.split(/\|\|?/).filter(part => part.trim() !== '');
+    
+    // Find the index of the supply line and only show content up to and including it
+    const supplyIndex = parts.findIndex(part => 
+      part.toLowerCase().trim().startsWith('supply:')
+    );
+    
+    // If supply line is found, only show parts up to and including the supply line
+    const filteredParts = supplyIndex >= 0 ? parts.slice(0, supplyIndex + 1) : parts;
+    
+    return filteredParts.map((part, index) => (
       <span key={index}>
         {part.trim()}
-        {index < description.split('||').length - 1 && <br />}
+        {index < filteredParts.length - 1 && <br />}
       </span>
     ));
   }, []);
@@ -773,7 +829,7 @@ export function ItemCard({
                           <div className="p-3 bg-gray-50 rounded border border-gray-200">
                             <span className="font-medium text-gray-700 text-sm">Description:</span>
                             {sizeGroup.descriptions ? (
-                              <p className="text-xs text-gray-600 mt-1 text-left">{formatDescription(sizeGroup.descriptions)}</p>
+                              <p className="text-xs text-gray-600 mt-1 text-left">{formatDescription(sizeGroup.descriptions, sizeGroup.supply)}</p>
                             ) : (
                               <p className="text-xs text-gray-500 mt-1 text-left italic">No description</p>
                             )}
@@ -885,7 +941,7 @@ export function ItemCard({
               })}
             </div>
     );
-  }, [sizeGroups, id, locallySubmitted, pendingServerConfirm, processing, expandedSizes, fileThumbnails, deleting, quoteFilesAvailable, toggleSize, handleSubmitLine, formatDescription, getFilePreview, customerName, type, handleDeleteFile, handleFileUploaded, handleImportQuoteFiles, handlePrepress]);
+  }, [sizeGroups, id, locallySubmitted, pendingServerConfirm, processing, expandedSizes, fileThumbnails, deleting, quoteFilesAvailable, toggleSize, handleSubmitLine, formatDescription, getFilePreview, customerName, type, handleDeleteFile, handleFileUploaded, handleImportQuoteFiles, handlePrepress, handleConfirmDelete, handleCloseDeleteModal]);
 
   return (
     <div className="border rounded-lg shadow-sm">
@@ -937,6 +993,15 @@ export function ItemCard({
           {renderedSizeGroups}
         </div>
       )}
+      
+      {/* Delete File Modal */}
+      <DeleteFileModal
+        isOpen={deleteModalOpen}
+        onClose={handleCloseDeleteModal}
+        onConfirm={handleConfirmDelete}
+        fileName={fileToDelete?.fileName || ''}
+        type={type}
+      />
       
     </div>
   );

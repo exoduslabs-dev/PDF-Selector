@@ -10,6 +10,8 @@ export interface Job {
   material?: string;
   finishing?: string;
   readyDate?: string;
+  dueDate?: string;
+  overdueDate?: string;
   orderDate?: string;
   quantity?: number;
   tool?: string;
@@ -94,13 +96,22 @@ function JobCard({
       aria-label={`Job ${job.jobNumber}`}
     >
       {/* Due Date - Top Right */}
-      {job.readyDate && (
+      {(job.dueDate || job.readyDate) && (
         <div className="absolute top-2 right-2 text-xs font-medium">
           {(() => {
             const today = new Date();
-            const dueDate = new Date(job.readyDate);
-            const daysRemaining = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+            const baseDate = job.dueDate ? new Date(job.dueDate) : new Date(job.readyDate!);
+            const isOverdue = baseDate.getTime() < today.getTime();
+            const daysRemaining = Math.ceil((baseDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
             
+            if (isOverdue) {
+              return (
+                <div className="text-red-600 font-bold">
+                  {baseDate.toLocaleDateString()}
+                </div>
+              );
+            }
+
             let textColor = 'text-blue-600';
             if (activeTab === 'printing') {
               if (daysRemaining < 6) textColor = daysRemaining < 5 ? 'text-red-600' : 'text-orange-600';

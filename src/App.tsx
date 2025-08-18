@@ -6,6 +6,7 @@ import { QuotesPage } from "./pages/QuotesPage";
 import { JobPage } from "./pages/JobPage";
 import { ProductionPage } from "./pages/ProductionPage";
 import { ArchivePage } from "./pages/ArchivePage";
+import { MaterialsPage } from "./pages/MaterialsPage";
 
 export function App() {
   const [activeTab, setActiveTab] = useState("quotes");
@@ -55,6 +56,16 @@ export function App() {
         >
           Archive
         </button>
+        <button
+          className={`w-28 h-10 rounded font-semibold transition-colors ${
+            activeTab === "materials"
+              ? "bg-blue-600 text-white"
+              : "bg-muted text-black"
+          }`}
+          onClick={() => setActiveTab("materials")}
+        >
+          Materials
+        </button>
         </div>
       </header>
 
@@ -68,6 +79,7 @@ export function App() {
           {activeTab === "job" && <JobPage />}
           {activeTab === "production" && <ProductionPage />}
           {activeTab === "archive" && <ArchivePage />}
+          {activeTab === "materials" && <MaterialsPage />}
         </CardContent>
       </Card>
     </div>
