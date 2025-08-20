@@ -174,7 +174,7 @@ export function MaterialsPage() {
       const response = await apiCall('/api/materials');
       if (response.ok) {
         const data = await response.json();
-        setMaterials(data.materials || []);
+        setMaterials(data || []);
         setError(null);
       } else {
         throw new Error(`Failed to load materials: ${response.status}`);

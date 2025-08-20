@@ -7,6 +7,9 @@
     "dev": "/Users/switchbox/.bun/bin/bun --hot src/index.tsx",
     "start": "NODE_ENV=production /Users/switchbox/.bun/bin/bun src/index.tsx",
     "build": "/Users/switchbox/.bun/bin/bun run build.ts",
+    "api:dev": "/Users/switchbox/.bun/bin/bun --hot src/server.ts",
+    "api:start": "NODE_ENV=production /Users/switchbox/.bun/bin/bun src/server.ts",
+    "api:legacy": "/Users/switchbox/.bun/bin/bun scripts/api_server.ts",
     "labex:sync": "/Users/switchbox/.bun/bin/bun scripts/labex_sync.ts",
     "labex:monitor": "/Users/switchbox/.bun/bin/bun scripts/labex_sync.ts --monitor",
     "labex:once": "/Users/switchbox/.bun/bin/bun scripts/labex_sync.ts --once"
@@ -33,7 +36,8 @@
     "tailwindcss-animate": "^1.0.7",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.2",
-    "xml2js": "^0.6.2"
+    "xml2js": "^0.6.2",
+    "zod": "^4.0.17"
   },
   "devDependencies": {
     "@types/bun": "latest",

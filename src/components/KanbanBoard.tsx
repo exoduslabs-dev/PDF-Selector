@@ -416,15 +416,15 @@ export function KanbanBoard({
             title: 'Waiting for Artwork',
             groupBy: 'customer',
             color: 'border-l-red-500',
-            jobs: result.data.filter((job: any) => !job.processed && !job.finishing)
+            jobs: result.data.filter((job: any) => !job.processed && !job.finishingname)
               .map((job: any) => ({
                 id: job.id,
-                jobNumber: job.jobNumber,
-                customer: job.customer,
-                material: job.material,
-                finishing: job.finishing,
+                jobNumber: job.lineidentifier || `Job ${job.jobid}`,
+                customer: job.customername,
+                material: job.materialname,
+                finishing: job.finishingname,
                 readyDate: job.readyDate,
-                orderDate: job.orderDate,
+                orderDate: job.orderdate,
                 quantity: job.quantity,
                 tool: job.tool,
                 processed: job.processed,
@@ -442,19 +442,19 @@ export function KanbanBoard({
             title: 'Print Ready',
             groupBy: 'material',
             color: 'border-l-blue-500',
-            jobs: result.data.filter((job: any) => !job.processed && job.material && !job.finishing)
+            jobs: result.data.filter((job: any) => !job.processed && job.materialname && !job.finishingname)
               .map((job: any) => ({
                 id: job.id,
-                jobNumber: job.jobNumber,
-                customer: job.customer,
-                material: job.material,
-                finishing: job.finishing,
+                jobNumber: job.lineidentifier || `Job ${job.jobid}`,
+                customer: job.customername,
+                material: job.materialname,
+                finishing: job.finishingname,
                 readyDate: job.readyDate,
-                orderDate: job.orderDate,
+                orderDate: job.orderdate,
                 quantity: job.quantity,
                 tool: job.tool,
                 processed: job.processed,
-                quoteId: job.quoteId
+                quoteId: job.quoteid
               }))
               .sort((a: any, b: any) => {
                 if (!a.readyDate && !b.readyDate) return 0;
@@ -468,19 +468,19 @@ export function KanbanBoard({
             title: 'Finishing Ready',
             groupBy: 'finishing',
             color: 'border-l-amber-500',
-            jobs: result.data.filter((job: any) => !job.processed && job.finishing)
+            jobs: result.data.filter((job: any) => !job.processed && job.finishingname)
               .map((job: any) => ({
                 id: job.id,
-                jobNumber: job.jobNumber,
-                customer: job.customer,
-                material: job.material,
-                finishing: job.finishing,
+                jobNumber: job.lineidentifier || `Job ${job.jobid}`,
+                customer: job.customername,
+                material: job.materialname,
+                finishing: job.finishingname,
                 readyDate: job.readyDate,
-                orderDate: job.orderDate,
+                orderDate: job.orderdate,
                 quantity: job.quantity,
                 tool: job.tool,
                 processed: job.processed,
-                quoteId: job.quoteId
+                quoteId: job.quoteid
               }))
               .sort((a: any, b: any) => {
                 if (!a.readyDate && !b.readyDate) return 0;
@@ -494,19 +494,19 @@ export function KanbanBoard({
             title: 'Coated',
             groupBy: null,
             color: 'border-l-emerald-500',
-            jobs: result.data.filter((job: any) => !job.processed && job.finishing && job.finishing.toLowerCase().includes('coat'))
+            jobs: result.data.filter((job: any) => !job.processed && job.finishingname && job.finishingname.toLowerCase().includes('coat'))
               .map((job: any) => ({
                 id: job.id,
-                jobNumber: job.jobNumber,
-                customer: job.customer,
-                material: job.material,
-                finishing: job.finishing,
+                jobNumber: job.lineidentifier || `Job ${job.jobid}`,
+                customer: job.customername,
+                material: job.materialname,
+                finishing: job.finishingname,
                 readyDate: job.readyDate,
-                orderDate: job.orderDate,
+                orderDate: job.orderdate,
                 quantity: job.quantity,
                 tool: job.tool,
                 processed: job.processed,
-                quoteId: job.quoteId
+                quoteId: job.quoteid
               }))
               .sort((a: any, b: any) => {
                 if (!a.readyDate && !b.readyDate) return 0;
@@ -520,19 +520,19 @@ export function KanbanBoard({
             title: 'Digital Cut Ready',
             groupBy: null,
             color: 'border-l-fuchsia-500',
-            jobs: result.data.filter((job: any) => !job.processed && job.finishing && job.finishing.toLowerCase().includes('cut'))
+            jobs: result.data.filter((job: any) => !job.processed && job.finishingname && job.finishingname.toLowerCase().includes('cut'))
               .map((job: any) => ({
                 id: job.id,
-                jobNumber: job.jobNumber,
-                customer: job.customer,
-                material: job.material,
-                finishing: job.finishing,
+                jobNumber: job.lineidentifier || `Job ${job.jobid}`,
+                customer: job.customername,
+                material: job.materialname,
+                finishing: job.finishingname,
                 readyDate: job.readyDate,
-                orderDate: job.orderDate,
+                orderDate: job.orderdate,
                 quantity: job.quantity,
                 tool: job.tool,
                 processed: job.processed,
-                quoteId: job.quoteId
+                quoteId: job.quoteid
               }))
               .sort((a: any, b: any) => {
                 if (!a.readyDate && !b.readyDate) return 0;
@@ -546,19 +546,19 @@ export function KanbanBoard({
             title: 'Slitting Ready',
             groupBy: null,
             color: 'border-l-indigo-500',
-            jobs: result.data.filter((job: any) => !job.processed && job.finishing && job.finishing.toLowerCase().includes('slit'))
+            jobs: result.data.filter((job: any) => !job.processed && job.finishingname && job.finishingname.toLowerCase().includes('slit'))
               .map((job: any) => ({
                 id: job.id,
-                jobNumber: job.jobNumber,
-                customer: job.customer,
-                material: job.material,
-                finishing: job.finishing,
+                jobNumber: job.lineidentifier || `Job ${job.jobid}`,
+                customer: job.customername,
+                material: job.materialname,
+                finishing: job.finishingname,
                 readyDate: job.readyDate,
-                orderDate: job.orderDate,
+                orderDate: job.orderdate,
                 quantity: job.quantity,
                 tool: job.tool,
                 processed: job.processed,
-                quoteId: job.quoteId
+                quoteId: job.quoteid
               }))
               .sort((a: any, b: any) => {
                 if (!a.readyDate && !b.readyDate) return 0;
@@ -575,16 +575,16 @@ export function KanbanBoard({
             jobs: result.data.filter((job: any) => job.processed)
               .map((job: any) => ({
                 id: job.id,
-                jobNumber: job.jobNumber,
-                customer: job.customer,
-                material: job.material,
-                finishing: job.finishing,
+                jobNumber: job.lineidentifier || `Job ${job.jobid}`,
+                customer: job.customername,
+                material: job.materialname,
+                finishing: job.finishingname,
                 readyDate: job.readyDate,
-                orderDate: job.orderDate,
+                orderDate: job.orderdate,
                 quantity: job.quantity,
                 tool: job.tool,
                 processed: job.processed,
-                quoteId: job.quoteId
+                quoteId: job.quoteid
               }))
               .sort((a: any, b: any) => {
                 if (!a.readyDate && !b.readyDate) return 0;
@@ -601,16 +601,16 @@ export function KanbanBoard({
             jobs: result.data.filter((job: any) => job.processed && job.readyDate && new Date(job.readyDate) <= new Date())
               .map((job: any) => ({
                 id: job.id,
-                jobNumber: job.jobNumber,
-                customer: job.customer,
-                material: job.material,
-                finishing: job.finishing,
+                jobNumber: job.lineidentifier || `Job ${job.jobid}`,
+                customer: job.customername,
+                material: job.materialname,
+                finishing: job.finishingname,
                 readyDate: job.readyDate,
-                orderDate: job.orderDate,
+                orderDate: job.orderdate,
                 quantity: job.quantity,
                 tool: job.tool,
                 processed: job.processed,
-                quoteId: job.quoteId
+                quoteId: job.quoteid
               }))
               .sort((a: any, b: any) => {
                 if (!a.readyDate && !b.readyDate) return 0;
