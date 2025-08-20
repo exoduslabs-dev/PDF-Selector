@@ -255,12 +255,30 @@ CREATE INDEX idx_line_file_job_composite ON line_file_associations(job_id, assoc
 -- MATERIAL & FINISHING MANAGEMENT
 -- =============================================
 
+-- Material Groups (for categorizing materials)
+CREATE TABLE material_groups (
+  group_id TEXT PRIMARY KEY,
+  group_name TEXT UNIQUE NOT NULL,
+  group_description TEXT,
+  group_color TEXT, -- CSS color for UI display
+  sort_order INTEGER DEFAULT 0
+);
+
+-- Insert default material groups
+INSERT INTO material_groups (group_id, group_name, group_description, group_color, sort_order) VALUES
+('label_rolls', 'Label Rolls', 'Label rolls and substrates for printing', '#4A90E2', 1),
+('finishing_supply', 'Finishing Supply', 'Lamination films, overlays, and finishing materials', '#7ED321', 2),
+('packaging_material', 'Packaging Material', 'Packaging substrates and protective materials', '#F5A623', 3),
+('adhesive_materials', 'Adhesive Materials', 'Adhesive tapes, transfer papers, and mounting supplies', '#D0021B', 4),
+('specialty_substrates', 'Specialty Substrates', 'Custom and specialty printing materials', '#9013FE', 5);
+
 -- Materials
 CREATE TABLE materials (
   material_id TEXT PRIMARY KEY,
   material_code TEXT UNIQUE,
   material_name TEXT,
   substrate_type TEXT, -- 'paper', 'vinyl', 'polyester', 'polypropylene'
+  substrate_group TEXT REFERENCES material_groups(group_id), -- New grouping field
   adhesive_type TEXT, -- 'permanent', 'removable', 'repositionable'
   handling TEXT, -- 'hand_applied', 'machine_applied'
   weight_gsm INTEGER,
@@ -278,6 +296,41 @@ CREATE TABLE materials (
   pricing_unit TEXT DEFAULT 'sqm', -- 'sqm', 'linear_meter', 'sheet', 'roll', 'kg'
   aliases TEXT -- JSON array of alternative names
 );
+
+-- Suppliers
+CREATE TABLE IF NOT EXISTS suppliers (
+  supplier_id TEXT PRIMARY KEY,
+  supplier_code TEXT UNIQUE,
+  supplier_name TEXT NOT NULL,
+  contact_person TEXT,
+  email TEXT,
+  phone TEXT,
+  payment_terms TEXT,
+  lead_time_days INTEGER DEFAULT 0,
+  is_active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_suppliers_code ON suppliers(supplier_code);
+CREATE INDEX IF NOT EXISTS idx_suppliers_name ON suppliers(supplier_name);
+
+-- Material pricing by supplier
+CREATE TABLE IF NOT EXISTS material_supplier_pricing (
+  pricing_id TEXT PRIMARY KEY,
+  material_id TEXT REFERENCES materials(material_id) ON DELETE CASCADE,
+  supplier_id TEXT,
+  currency TEXT DEFAULT 'AUD',
+  unit_price DECIMAL(10,2) NOT NULL,
+  is_default BOOLEAN DEFAULT FALSE,
+  is_active BOOLEAN DEFAULT TRUE,
+  notes TEXT,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_mat_price_material ON material_supplier_pricing(material_id);
+CREATE INDEX IF NOT EXISTS idx_mat_price_active ON material_supplier_pricing(material_id, is_active);
 
 -- Color Mode Rules (linked to materials)
 CREATE TABLE color_mode_rules (
@@ -838,6 +891,7 @@ CREATE INDEX idx_production_queue_priority ON production_queue(priority_score);
 -- Materials and finishing
 CREATE INDEX idx_materials_code ON materials(material_code);
 CREATE INDEX idx_materials_substrate_type ON materials(substrate_type);
+CREATE INDEX idx_materials_substrate_group ON materials(substrate_group);
 CREATE INDEX idx_finishing_options_code ON finishing_options(finishing_code);
 
 -- =============================================

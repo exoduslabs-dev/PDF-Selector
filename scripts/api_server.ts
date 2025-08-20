@@ -78,6 +78,20 @@ const client = new Client({
 
 await client.connect();
 
+async function generateMaterialCode(client: Client, materialName: string): Promise<string> {
+  const base = (materialName || 'MAT').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10) || `MAT`;
+  let code = base;
+  let suffix = 0;
+  // Ensure uniqueness by appending incremental suffix if needed
+  while (true) {
+    const existing = await client.query('SELECT 1 FROM materials WHERE material_code = $1 LIMIT 1', [code]);
+    if (existing.rows.length === 0) return code;
+    suffix += 1;
+    const suffixStr = String(suffix);
+    code = (base.slice(0, Math.max(0, 10 - suffixStr.length)) + suffixStr);
+  }
+}
+
 serve({
   async fetch(req) {
     const url = new URL(req.url);
@@ -86,9 +100,11 @@ serve({
     const headers = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, HEAD, POST, PUT, DELETE, OPTIONS, PATCH',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Referer',
       'Access-Control-Max-Age': '86400',
+      'Access-Control-Expose-Headers': '*',
       'Vary': 'Origin, Access-Control-Request-Method, Access-Control-Request-Headers',
+      'Referrer-Policy': 'no-referrer-when-downgrade',
       'Content-Type': 'application/json',
     };
 
@@ -96,6 +112,161 @@ serve({
       return new Response(null, { status: 200, headers });
     }
 
+    // List available suppliers
+    if (url.pathname === '/api/suppliers' && req.method === 'GET') {
+      try {
+        // Prefer suppliers table if present
+        const result = await client.query(`SELECT supplier_id, supplier_name FROM suppliers WHERE is_active = TRUE ORDER BY supplier_name`);
+        return new Response(JSON.stringify({ success: true, suppliers: result.rows }), { headers });
+      } catch (error: any) {
+        try {
+          // Fallback to distinct supplier_id from pricing records
+          const result = await client.query(`SELECT DISTINCT supplier_id FROM material_supplier_pricing WHERE supplier_id IS NOT NULL ORDER BY supplier_id`);
+          const items = result.rows.map(r => ({ supplier_id: r.supplier_id, supplier_name: r.supplier_id }));
+          return new Response(JSON.stringify({ success: true, suppliers: items }), { headers });
+        } catch (e2: any) {
+          console.error('List suppliers error:', e2);
+          return new Response(JSON.stringify({ error: e2.message }), { status: 500, headers });
+        }
+      }
+    }
+
+    // Get dynamic field options from existing materials
+    if (url.pathname === '/api/field-options' && req.method === 'GET') {
+      try {
+        // Get distinct values from materials table for various fields
+        const [substrateTypes, adhesiveTypes, handlingTypes, coatingTypes, pricingUnits] = await Promise.all([
+          client.query('SELECT DISTINCT substrate_type FROM materials WHERE substrate_type IS NOT NULL AND substrate_type != \'\' ORDER BY substrate_type'),
+          client.query('SELECT DISTINCT adhesive_type FROM materials WHERE adhesive_type IS NOT NULL AND adhesive_type != \'\' ORDER BY adhesive_type'),
+          client.query('SELECT DISTINCT handling FROM materials WHERE handling IS NOT NULL AND handling != \'\' ORDER BY handling'),
+          client.query('SELECT DISTINCT coating FROM materials WHERE coating IS NOT NULL AND coating != \'\' ORDER BY coating'),
+          client.query('SELECT DISTINCT pricing_unit FROM materials WHERE pricing_unit IS NOT NULL AND pricing_unit != \'\' ORDER BY pricing_unit')
+        ]);
+
+        const options = {
+          substrate_types: ['paper', 'vinyl', 'polyester', 'polypropylene', 'pet', 'other', ...substrateTypes.rows.map(r => r.substrate_type)].filter((v, i, a) => a.indexOf(v) === i),
+          adhesive_types: ['permanent', 'removable', 'repositionable', ...adhesiveTypes.rows.map(r => r.adhesive_type)].filter((v, i, a) => a.indexOf(v) === i),
+          handling_types: ['web', 'sheet', 'other', ...handlingTypes.rows.map(r => r.handling)].filter((v, i, a) => a.indexOf(v) === i),
+          coating_types: ['coated', 'uncoated', ...coatingTypes.rows.map(r => r.coating)].filter((v, i, a) => a.indexOf(v) === i),
+          pricing_units: ['sqm', 'linear_meter', 'sheet', 'roll', 'kg', ...pricingUnits.rows.map(r => r.pricing_unit)].filter((v, i, a) => a.indexOf(v) === i)
+        };
+
+        return new Response(JSON.stringify({ success: true, options }), { headers });
+      } catch (error: any) {
+        console.error('Get field options error:', error);
+        return new Response(JSON.stringify({ error: error.message }), { status: 500, headers });
+      }
+    }
+
+    // Create material pricing
+    if (url.pathname === '/api/material-pricing' && req.method === 'POST') {
+      try {
+        const body = await req.json();
+        const { material_id, supplier_id, pricing_unit, cost_per_unit, notes } = body as any;
+        if (!material_id || cost_per_unit == null) {
+          return new Response(JSON.stringify({ error: 'material_id and cost_per_unit are required' }), { status: 400, headers });
+        }
+        
+        // First, try to update existing record if it exists
+        const existingCheck = await client.query(
+          'SELECT pricing_id FROM material_supplier_pricing WHERE material_id = $1 AND supplier_id = $2',
+          [material_id, supplier_id ?? null]
+        );
+        
+        if (existingCheck.rows.length > 0) {
+          // Update existing record
+          const existingPricingId = existingCheck.rows[0].pricing_id;
+          const result = await client.query(
+            `UPDATE material_supplier_pricing SET
+               cost_per_unit = $1,
+               pricing_unit = COALESCE($2, pricing_unit),
+               updated_at = NOW(),
+               is_active = TRUE,
+               notes = COALESCE($3, notes)
+             WHERE pricing_id = $4
+             RETURNING *`,
+            [cost_per_unit, pricing_unit ?? null, notes ?? null, existingPricingId]
+          );
+          return new Response(JSON.stringify({ success: true, pricing: result.rows[0] }), { headers });
+        } else {
+          // Insert new record
+          const pricing_id = `PRC-${Date.now()}`;
+          const result = await client.query(
+            `INSERT INTO material_supplier_pricing (
+               pricing_id, material_id, supplier_id, cost_per_unit, pricing_unit, is_preferred_supplier, is_active, notes
+             )
+             VALUES ($1, $2, $3, $4, COALESCE($5, (SELECT pricing_unit FROM materials WHERE material_id = $2)), FALSE, TRUE, $6)
+             RETURNING *`,
+            [pricing_id, material_id, supplier_id ?? null, cost_per_unit, pricing_unit ?? null, notes ?? null]
+          );
+          return new Response(JSON.stringify({ success: true, pricing: result.rows[0] }), { headers });
+        }
+      } catch (error: any) {
+        console.error('Create pricing error:', error);
+        return new Response(JSON.stringify({ error: error.message }), { status: 500, headers });
+      }
+    }
+
+    // Soft delete pricing (inactive)
+    if (url.pathname.startsWith('/api/material-pricing/') && req.method === 'DELETE') {
+      try {
+        const id = url.pathname.split('/').pop() as string;
+        await client.query('UPDATE material_supplier_pricing SET is_active = FALSE WHERE pricing_id = $1', [id]);
+        return new Response(JSON.stringify({ success: true }), { headers });
+      } catch (error: any) {
+        console.error('Delete pricing error:', error);
+        return new Response(JSON.stringify({ error: error.message }), { status: 500, headers });
+      }
+    }
+
+    // List pricing for a material
+    if (url.pathname === '/api/material-pricing' && req.method === 'GET') {
+      const materialId = new URL(req.url).searchParams.get('material_id');
+      if (!materialId) return new Response(JSON.stringify({ error: 'material_id required' }), { status: 400, headers });
+      try {
+        const result = await client.query(
+          `SELECT msp.pricing_id, msp.supplier_id, s.supplier_name, msp.pricing_unit, msp.cost_per_unit, msp.is_preferred_supplier, msp.is_active, msp.notes
+           FROM material_supplier_pricing msp
+           LEFT JOIN suppliers s ON s.supplier_id = msp.supplier_id
+           WHERE msp.material_id = $1 AND msp.is_active = TRUE
+           ORDER BY msp.is_preferred_supplier DESC, msp.created_at DESC`,
+          [materialId]
+        );
+        return new Response(JSON.stringify({ success: true, items: result.rows }), { headers });
+      } catch (error: any) {
+        console.error('List pricing error:', error);
+        return new Response(JSON.stringify({ error: error.message }), { status: 500, headers });
+      }
+    }
+
+    // Update an existing pricing row
+    if (url.pathname.startsWith('/api/material-pricing/') && req.method === 'PUT') {
+      try {
+        const pricingId = url.pathname.split('/').pop() as string;
+        const body = await req.json();
+        const { supplier_id, cost_per_unit, pricing_unit, is_preferred_supplier, notes } = body as any;
+        const result = await client.query(
+          `UPDATE material_supplier_pricing SET
+             supplier_id = COALESCE($2, supplier_id),
+             cost_per_unit = COALESCE($3, cost_per_unit),
+             pricing_unit = COALESCE($4, pricing_unit),
+             is_preferred_supplier = COALESCE($5, is_preferred_supplier),
+             notes = COALESCE($6, notes),
+             updated_at = NOW()
+           WHERE pricing_id = $1
+           RETURNING *`,
+          [pricingId, supplier_id ?? null, cost_per_unit ?? null, pricing_unit ?? null, is_preferred_supplier ?? null, notes ?? null]
+        );
+        if (result.rows.length === 0) return new Response(JSON.stringify({ error: 'Not found' }), { status: 404, headers });
+        return new Response(JSON.stringify({ success: true, pricing: result.rows[0] }), { headers });
+      } catch (error: any) {
+        if (error?.code === '23505') {
+          return new Response(JSON.stringify({ error: 'Duplicate supplier for this material' }), { status: 409, headers });
+        }
+        console.error('Update pricing error:', error);
+        return new Response(JSON.stringify({ error: error.message }), { status: 500, headers });
+      }
+    }
     if (url.pathname === '/api/quotes') {
       try {
         // Get limit parameter from query string
@@ -1455,6 +1626,7 @@ serve({
             material_code,
             material_name,
             substrate_type,
+            substrate_group,
             adhesive_type,
             handling,
             weight_gsm,
@@ -1470,7 +1642,13 @@ serve({
             reorder_level,
             lead_time_days,
             pricing_unit,
-            aliases
+            aliases,
+            (
+              SELECT supplier_id
+              FROM material_supplier_pricing msp
+              WHERE msp.material_id = materials.material_id
+              LIMIT 1
+            ) AS default_supplier_id
           FROM materials
           ORDER BY material_name ASC
         `);
@@ -1493,12 +1671,12 @@ serve({
     if (url.pathname === '/api/materials' && req.method === 'POST') {
       try {
         const body = await req.json();
-        const {
-          material_code, material_name, substrate_type, adhesive_type, handling,
+        let {
+          material_code, material_name, substrate_type, substrate_group, adhesive_type, handling,
           weight_gsm, width_mm, length_mm, coating, grain_direction, glossy_level,
           conductive, white_material, cost_aud, stock, 
           reorder_level, lead_time_days, pricing_unit, aliases
-        } = body;
+        } = body as any;
 
         if (!material_name) {
           return new Response(JSON.stringify({ error: 'Material name is required' }), {
@@ -1510,16 +1688,21 @@ serve({
         // Generate material ID
         const material_id = `MAT-${Date.now()}`;
 
+        // Generate code if not provided
+        if (!material_code || String(material_code).trim() === '') {
+          material_code = await generateMaterialCode(client, material_name || 'MAT');
+        }
+
         const result = await client.query(`
           INSERT INTO materials (
-            material_id, material_code, material_name, substrate_type, adhesive_type,
+            material_id, material_code, material_name, substrate_type, substrate_group, adhesive_type,
             handling, weight_gsm, width_mm, length_mm, coating, grain_direction,
             glossy_level, conductive, white_material, cost_aud,
             stock, reorder_level, lead_time_days, pricing_unit, aliases
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
           RETURNING *
         `, [
-          material_id, material_code, material_name, substrate_type, adhesive_type,
+          material_id, material_code, material_name, substrate_type, substrate_group, adhesive_type,
           handling, weight_gsm, width_mm, length_mm, coating, grain_direction,
           glossy_level, conductive, white_material, cost_aud,
           stock, reorder_level, lead_time_days, pricing_unit, aliases
@@ -1543,12 +1726,12 @@ serve({
       try {
         const materialId = url.pathname.split('/').pop();
         const body = await req.json();
-        const {
-          material_code, material_name, substrate_type, adhesive_type, handling,
+        let {
+          material_code, material_name, substrate_type, substrate_group, adhesive_type, handling,
           weight_gsm, width_mm, length_mm, coating, grain_direction, glossy_level,
           conductive, white_material, cost_aud, stock,
           reorder_level, lead_time_days, pricing_unit, aliases
-        } = body;
+        } = body as any;
 
         if (!material_name) {
           return new Response(JSON.stringify({ error: 'Material name is required' }), {
@@ -1557,17 +1740,24 @@ serve({
           });
         }
 
+        // Preserve existing code if not provided
+        const current = await client.query('SELECT material_code FROM materials WHERE material_id = $1', [materialId]);
+        if (current.rows.length === 0) {
+          return new Response(JSON.stringify({ error: 'Material not found' }), { status: 404, headers });
+        }
+        const codeToUse = (material_code && String(material_code).trim()) ? material_code : current.rows[0].material_code;
+
         const result = await client.query(`
           UPDATE materials SET
-            material_code = $2, material_name = $3, substrate_type = $4, adhesive_type = $5,
-            handling = $6, weight_gsm = $7, width_mm = $8, length_mm = $9, coating = $10,
-            grain_direction = $11, glossy_level = $12, conductive = $13, white_material = $14,
-            cost_aud = $15, stock = $16, reorder_level = $17, lead_time_days = $18,
-            pricing_unit = $19, aliases = $20
+            material_code = $2, material_name = $3, substrate_type = $4, substrate_group = $5, adhesive_type = $6,
+            handling = $7, weight_gsm = $8, width_mm = $9, length_mm = $10, coating = $11,
+            grain_direction = $12, glossy_level = $13, conductive = $14, white_material = $15,
+            cost_aud = $16, stock = $17, reorder_level = $18, lead_time_days = $19,
+            pricing_unit = $20, aliases = $21
           WHERE material_id = $1
           RETURNING *
         `, [
-          materialId, material_code, material_name, substrate_type, adhesive_type,
+          materialId, codeToUse, material_name, substrate_type, substrate_group, adhesive_type,
           handling, weight_gsm, width_mm, length_mm, coating, grain_direction,
           glossy_level, conductive, white_material, cost_aud,
           stock, reorder_level, lead_time_days, pricing_unit, aliases
@@ -1593,53 +1783,355 @@ serve({
       }
     }
 
-    // Import materials from job lines
-    if (url.pathname === '/api/import-materials-from-jobs' && req.method === 'POST') {
-      try {
-        // Get distinct material names from jobs that aren't already in materials table
-        const jobMaterials = await client.query(`
-          SELECT DISTINCT j.material_name
-          FROM jobs j
-          WHERE j.material_name IS NOT NULL 
-            AND j.material_name != ''
-            AND j.material_name != 'nan'
-            AND NOT EXISTS (
-              SELECT 1 FROM materials m 
-              WHERE LOWER(m.material_name) = LOWER(j.material_name)
-            )
-          ORDER BY j.material_name
-        `);
 
-        let imported = 0;
-        for (const row of jobMaterials.rows) {
-          const materialName = row.material_name.trim();
-          if (materialName) {
-            const material_id = `MAT-JOB-${Date.now()}-${imported}`;
-            const material_code = materialName.replace(/[^A-Za-z0-9]/g, '').toUpperCase().substring(0, 10);
+
+    // List material groups
+    if (url.pathname === '/api/material-groups' && req.method === 'GET') {
+      try {
+        const result = await client.query(
+          `SELECT group_id, group_name, group_description, group_color, sort_order
+           FROM material_groups
+           ORDER BY sort_order ASC, group_name ASC`
+        );
+        return new Response(JSON.stringify({ success: true, groups: result.rows }), { headers });
+      } catch (error: any) {
+        console.error('Fetch material groups error:', error);
+        return new Response(JSON.stringify({ error: error.message }), { status: 500, headers });
+      }
+    }
+
+    // Create material group
+    if (url.pathname === '/api/material-groups' && req.method === 'POST') {
+      try {
+        const body = await req.json();
+        let { group_id, group_name, group_description, group_color, sort_order } = body as {
+          group_id?: string;
+          group_name: string;
+          group_description?: string;
+          group_color?: string;
+          sort_order?: number;
+        };
+
+        if (!group_name || typeof group_name !== 'string') {
+          return new Response(JSON.stringify({ error: 'group_name is required' }), { status: 400, headers });
+        }
+
+        if (!group_id) {
+          group_id = group_name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+        }
+        group_description = group_description ?? '';
+        group_color = group_color ?? '#888888';
+        sort_order = typeof sort_order === 'number' ? sort_order : 999;
+
+        const result = await client.query(
+          `INSERT INTO material_groups (group_id, group_name, group_description, group_color, sort_order)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (group_id) DO UPDATE SET
+             group_name = EXCLUDED.group_name,
+             group_description = EXCLUDED.group_description,
+             group_color = EXCLUDED.group_color,
+             sort_order = EXCLUDED.sort_order
+           RETURNING *`,
+          [group_id, group_name, group_description, group_color, sort_order]
+        );
+
+        return new Response(JSON.stringify({ success: true, group: result.rows[0] }), { headers });
+      } catch (error: any) {
+        console.error('Create material group error:', error);
+        return new Response(JSON.stringify({ error: error.message }), { status: 500, headers });
+      }
+    }
+
+    // Update material group
+    if (url.pathname.startsWith('/api/material-groups/') && req.method === 'PUT') {
+      try {
+        const groupId = url.pathname.split('/').pop() as string;
+        const body = await req.json();
+        const { group_name, group_description, group_color, sort_order } = body as {
+          group_name?: string;
+          group_description?: string;
+          group_color?: string;
+          sort_order?: number;
+        };
+
+        const result = await client.query(
+          `UPDATE material_groups SET
+             group_name = COALESCE($2, group_name),
+             group_description = COALESCE($3, group_description),
+             group_color = COALESCE($4, group_color),
+             sort_order = COALESCE($5, sort_order)
+           WHERE group_id = $1
+           RETURNING *`,
+          [groupId, group_name ?? null, group_description ?? null, group_color ?? null, typeof sort_order === 'number' ? sort_order : null]
+        );
+
+        if (result.rows.length === 0) {
+          return new Response(JSON.stringify({ error: 'Group not found' }), { status: 404, headers });
+        }
+        return new Response(JSON.stringify({ success: true, group: result.rows[0] }), { headers });
+      } catch (error: any) {
+        console.error('Update material group error:', error);
+        return new Response(JSON.stringify({ error: error.message }), { status: 500, headers });
+      }
+    }
+
+    // Delete material group (prevent delete if in use)
+    if (url.pathname.startsWith('/api/material-groups/') && req.method === 'DELETE') {
+      try {
+        const groupId = url.pathname.split('/').pop() as string;
+        const inUse = await client.query('SELECT 1 FROM materials WHERE substrate_group = $1 LIMIT 1', [groupId]);
+        if (inUse.rows.length > 0) {
+          return new Response(JSON.stringify({ error: 'Cannot delete group: it is referenced by materials' }), { status: 409, headers });
+        }
+        const result = await client.query('DELETE FROM material_groups WHERE group_id = $1 RETURNING *', [groupId]);
+        if (result.rows.length === 0) {
+          return new Response(JSON.stringify({ error: 'Group not found' }), { status: 404, headers });
+        }
+        return new Response(JSON.stringify({ success: true }), { headers });
+      } catch (error: any) {
+        console.error('Delete material group error:', error);
+        return new Response(JSON.stringify({ error: error.message }), { status: 500, headers });
+      }
+    }
+
+    // Download CSV template for materials
+    if (url.pathname === '/api/materials/csv-template' && req.method === 'GET') {
+      const csvTemplate = `material_code,material_name,substrate_type,substrate_group,adhesive_type,handling,weight_gsm,width_mm,length_mm,coating,grain_direction,glossy_level,conductive,white_material,cost_aud,stock,reorder_level,lead_time_days,pricing_unit,aliases,supplier_id_1,supplier_cost_1,supplier_unit_1,supplier_preferred_1,supplier_id_2,supplier_cost_2,supplier_unit_2,supplier_preferred_2,supplier_id_3,supplier_cost_3,supplier_unit_3,supplier_preferred_3
+MAT001,Example Label Material,paper,label_rolls,permanent,Web,80,1000,1000,Coated,short,high,false,false,10.50,100,10,7,sqm,"alias1, alias2",SUP001,12.50,sqm,true,SUP002,11.80,sqm,false,,,false
+MAT002,Lamination Film,polyester,finishing_supply,removable,Sheet,120,1200,800,Uncoated,long,low,true,true,25.00,50,5,14,meters,"lamination, overlay",SUP002,28.00,linear_meter,true,,,false,,,false`;
+
+      return new Response(csvTemplate, {
+        headers: {
+          ...headers,
+          'Content-Type': 'text/csv',
+          'Content-Disposition': 'attachment; filename="materials_template.csv"'
+        }
+      });
+    }
+
+    // Upload CSV materials
+    if (url.pathname === '/api/materials/csv-upload' && req.method === 'POST') {
+      try {
+        const formData = await req.formData();
+        const file = formData.get('file') as File;
+        
+        if (!file) {
+          return new Response(JSON.stringify({ error: 'No file provided' }), {
+            status: 400,
+            headers
+          });
+        }
+
+        if (!file.name.toLowerCase().endsWith('.csv')) {
+          return new Response(JSON.stringify({ error: 'File must be a CSV' }), {
+            status: 400,
+            headers
+          });
+        }
+
+        const csvContent = await file.text();
+        const lines = csvContent.split('\n').filter(line => line.trim());
+        
+        if (lines.length < 2) {
+          return new Response(JSON.stringify({ error: 'CSV must contain header and at least one data row' }), {
+            status: 400,
+            headers
+          });
+        }
+
+        const headerLine = lines[0];
+        if (!headerLine) {
+          return new Response(JSON.stringify({ error: 'CSV header line is missing' }), {
+            status: 400,
+            headers
+          });
+        }
+
+        const expectedHeaders = [
+          'material_code', 'material_name', 'substrate_type', 'substrate_group', 'adhesive_type', 'handling',
+          'weight_gsm', 'width_mm', 'length_mm', 'coating', 'grain_direction', 'glossy_level',
+          'conductive', 'white_material', 'cost_aud', 'stock', 'reorder_level', 
+          'lead_time_days', 'pricing_unit', 'aliases',
+          'supplier_id_1', 'supplier_cost_1', 'supplier_unit_1', 'supplier_preferred_1',
+          'supplier_id_2', 'supplier_cost_2', 'supplier_unit_2', 'supplier_preferred_2',
+          'supplier_id_3', 'supplier_cost_3', 'supplier_unit_3', 'supplier_preferred_3'
+        ];
+
+        // Parse CSV header
+        const headers_csv = headerLine.split(',').map(h => h.trim().replace(/"/g, ''));
+        
+        // Validate headers
+        const missingHeaders = expectedHeaders.filter(h => !headers_csv.includes(h));
+        if (missingHeaders.length > 0) {
+          return new Response(JSON.stringify({ 
+            error: `Missing required headers: ${missingHeaders.join(', ')}` 
+          }), {
+            status: 400,
+            headers
+          });
+        }
+
+        const results = {
+          imported: 0,
+          updated: 0,
+          errors: [] as string[]
+        };
+
+        // Process each data row
+        for (let i = 1; i < lines.length; i++) {
+          const line = lines[i]?.trim();
+          if (!line) continue;
+
+          try {
+            // Parse CSV line (simple parser - handles quoted fields)
+            const values: string[] = [];
+            let current = '';
+            let inQuotes = false;
             
-            await client.query(`
-              INSERT INTO materials (
-                material_id, material_code, material_name, substrate_type, adhesive_type,
-                handling, weight_gsm, width_mm, length_mm, coating,
-                cost_aud, stock, reorder_level, lead_time_days,
-                pricing_unit, aliases
-              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-            `, [
-              material_id, material_code, materialName, 'paper', 'permanent',
-              'hand_applied', 80, 1000, 1000, 'matte',
-              0, 0, 10, 7, 'sqm', ''
-            ]);
-            imported++;
+            for (let j = 0; j < line.length; j++) {
+              const char = line[j];
+              if (char === '"') {
+                inQuotes = !inQuotes;
+              } else if (char === ',' && !inQuotes) {
+                values.push(current.trim());
+                current = '';
+              } else {
+                current += char;
+              }
+            }
+            values.push(current.trim()); // Add the last value
+
+            if (values.length !== expectedHeaders.length) {
+              results.errors.push(`Row ${i + 1}: Expected ${expectedHeaders.length} columns, got ${values.length}`);
+              continue;
+            }
+
+            // Map values to object
+            const materialData: any = {};
+            expectedHeaders.forEach((header, index) => {
+              let value = values[index]?.replace(/"/g, '') || '';
+              
+              // Type conversions
+              if (['weight_gsm', 'lead_time_days'].includes(header)) {
+                materialData[header] = parseInt(value) || 0;
+              } else if (['width_mm', 'length_mm', 'cost_aud', 'stock', 'reorder_level'].includes(header)) {
+                materialData[header] = parseFloat(value) || 0;
+              } else if (['conductive', 'white_material'].includes(header)) {
+                materialData[header] = value.toLowerCase() === 'true';
+              } else if (header.includes('supplier_cost_')) {
+                materialData[header] = parseFloat(value) || 0;
+              } else if (header.includes('supplier_preferred_')) {
+                materialData[header] = value.toLowerCase() === 'true';
+              } else {
+                materialData[header] = value;
+              }
+            });
+
+            // Validate required fields
+            if (!materialData.material_code || !materialData.material_name) {
+              results.errors.push(`Row ${i + 1}: material_code and material_name are required`);
+              continue;
+            }
+
+            // Generate material_id if not provided
+            const material_id = `MAT-CSV-${Date.now()}-${results.imported + results.updated}`;
+
+            // Check if material already exists
+            const existingMaterial = await client.query(
+              'SELECT material_id FROM materials WHERE material_code = $1',
+              [materialData.material_code]
+            );
+
+            if (existingMaterial.rows.length > 0) {
+              // Update existing material
+              await client.query(`
+                UPDATE materials SET
+                  material_name = $2, substrate_type = $3, substrate_group = $4, adhesive_type = $5,
+                  handling = $6, weight_gsm = $7, width_mm = $8, length_mm = $9, coating = $10,
+                  grain_direction = $11, glossy_level = $12, conductive = $13, white_material = $14,
+                  cost_aud = $15, stock = $16, reorder_level = $17, lead_time_days = $18,
+                  pricing_unit = $19, aliases = $20
+                WHERE material_code = $1
+              `, [
+                materialData.material_code, materialData.material_name, materialData.substrate_type,
+                materialData.substrate_group, materialData.adhesive_type, materialData.handling, materialData.weight_gsm,
+                materialData.width_mm, materialData.length_mm, materialData.coating,
+                materialData.grain_direction, materialData.glossy_level, materialData.conductive,
+                materialData.white_material, materialData.cost_aud, materialData.stock,
+                materialData.reorder_level, materialData.lead_time_days, materialData.pricing_unit,
+                materialData.aliases
+              ]);
+              results.updated++;
+            } else {
+              // Insert new material
+              await client.query(`
+                INSERT INTO materials (
+                  material_id, material_code, material_name, substrate_type, substrate_group, adhesive_type,
+                  handling, weight_gsm, width_mm, length_mm, coating, grain_direction,
+                  glossy_level, conductive, white_material, cost_aud, stock,
+                  reorder_level, lead_time_days, pricing_unit, aliases
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+              `, [
+                material_id, materialData.material_code, materialData.material_name,
+                materialData.substrate_type, materialData.substrate_group, materialData.adhesive_type, materialData.handling,
+                materialData.weight_gsm, materialData.width_mm, materialData.length_mm,
+                materialData.coating, materialData.grain_direction, materialData.glossy_level,
+                materialData.conductive, materialData.white_material, materialData.cost_aud,
+                materialData.stock, materialData.reorder_level, materialData.lead_time_days,
+                materialData.pricing_unit, materialData.aliases
+              ]);
+              results.imported++;
+            }
+
+            // Process supplier pricing data
+            const currentMaterialId = existingMaterial.rows.length > 0 ? existingMaterial.rows[0].material_id : material_id;
+            
+            // Process up to 3 supplier entries
+            for (let supplierIndex = 1; supplierIndex <= 3; supplierIndex++) {
+              const supplierId = materialData[`supplier_id_${supplierIndex}`];
+              const supplierCost = materialData[`supplier_cost_${supplierIndex}`];
+              const supplierUnit = materialData[`supplier_unit_${supplierIndex}`];
+              const supplierPreferred = materialData[`supplier_preferred_${supplierIndex}`];
+              
+              if (supplierId && supplierCost > 0) {
+                try {
+                  // Insert or update supplier pricing
+                  const pricingId = `PRC-CSV-${Date.now()}-${supplierIndex}`;
+                  await client.query(`
+                    INSERT INTO material_supplier_pricing (
+                      pricing_id, material_id, supplier_id, cost_per_unit, pricing_unit, is_preferred_supplier, is_active
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, TRUE)
+                    ON CONFLICT (material_id, supplier_id)
+                    DO UPDATE SET
+                      cost_per_unit = EXCLUDED.cost_per_unit,
+                      pricing_unit = COALESCE(EXCLUDED.pricing_unit, material_supplier_pricing.pricing_unit),
+                      is_preferred_supplier = EXCLUDED.is_preferred_supplier,
+                      updated_at = NOW(),
+                      is_active = TRUE
+                  `, [
+                    pricingId, currentMaterialId, supplierId, supplierCost, 
+                    supplierUnit || 'sqm', supplierPreferred || false
+                  ]);
+                } catch (pricingError: any) {
+                  results.errors.push(`Row ${i + 1}: Supplier ${supplierIndex} pricing error: ${pricingError.message}`);
+                }
+              }
+            }
+
+          } catch (error: any) {
+            results.errors.push(`Row ${i + 1}: ${error.message}`);
           }
         }
 
         return new Response(JSON.stringify({
           success: true,
-          imported,
-          message: `Imported ${imported} new materials from job lines`
+          ...results,
+          message: `Imported ${results.imported} new materials, updated ${results.updated} existing materials${results.errors.length > 0 ? ` with ${results.errors.length} errors` : ''}`
         }), { headers });
+
       } catch (error: any) {
-        console.error('Import materials error:', error);
+        console.error('CSV upload error:', error);
         return new Response(JSON.stringify({ error: error.message }), {
           status: 500,
           headers
