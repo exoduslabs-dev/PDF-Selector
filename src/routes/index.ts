@@ -3,6 +3,7 @@ import { handleSupplierRoutes } from './suppliers.js';
 import { handleQuoteRoutes } from './quotes.js';
 import { handleJobRoutes } from './jobs.js';
 import { handleCustomerRoutes } from './customers.js';
+import { handleFileRoutes } from './files.js';
 import type { RouteHandler } from '../types/common.js';
 
 /**
@@ -29,9 +30,9 @@ export const router: RouteHandler = async (req: Request, url: URL): Promise<Resp
   const customerResponse = await handleCustomerRoutes(req, url);
   if (customerResponse) return customerResponse;
 
-  // Add file routes when implemented
-  // const fileResponse = await handleFileRoutes(req, url);
-  // if (fileResponse) return fileResponse;
+  // Try file routes
+  const fileResponse = await handleFileRoutes(req, url);
+  if (fileResponse) return fileResponse;
 
   // No route matched
   return null;

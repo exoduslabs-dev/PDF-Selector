@@ -24,8 +24,8 @@ interface SizeGroup {
 
 interface FileInfo {
   filename: string;
-  filelocation: string;
-  uploadedat: string;
+  filePath: string;
+  uploadedat?: string;
 }
 
 interface FileThumbnail {
@@ -178,13 +178,14 @@ export function ItemCard({
       const response = await fetch(`${API_BASE_URL}/api/get-files?customerName=${encodeURIComponent(customerName)}&size=${encodeURIComponent(size)}&quoteId=${encodeURIComponent(id)}&type=${encodeURIComponent(type)}`);
       
       if (response.ok) {
-        const files: FileInfo[] = await response.json();
+        const data = await response.json();
+        const files: FileInfo[] = data.success ? data.files : [];
         console.log(`Found ${files.length} files:`, files.map(f => f.filename));
         
         // Initialize thumbnails for all files
         const thumbnails: FileThumbnail[] = files.map(file => ({
           filename: file.filename,
-          filePath: file.filelocation,
+          filePath: file.filePath,
           fileType: getFileType(file.filename)
         }));
         
@@ -470,18 +471,19 @@ export function ItemCard({
       const extractedSize = uploadKey.split('-').slice(1).join('-');
       console.log('Deleting file:', { fileName, customerName, size: extractedSize, quoteId: id });
       
+      // Find the file to get its full path
+      const fileToDelete = fileThumbnails[uploadKey]?.find(f => f.filename === fileName);
+      if (!fileToDelete) {
+        throw new Error('File not found in current list');
+      }
+
       const response = await fetch(`${API_BASE_URL}/api/delete-file`, {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          filename: fileName,
-          customerName,
-          size: extractedSize,
-          quoteId: id,
-          type,
-          deleteType
+          filePath: fileToDelete.filePath
         }),
       });
 
@@ -860,7 +862,7 @@ export function ItemCard({
                                         {fileThumb.fileType === 'pdf' ? (
                                     <div className="relative w-full h-44 bg-white rounded flex items-center justify-center overflow-hidden">
                                       <img
-                                        src={`${API_BASE_URL}/api/file-thumbnail?size=2048&filePath=${encodeURIComponent(fileThumb.filePath)}`}
+                                        src={`${API_BASE_URL}/api/file-thumbnail?filePath=${encodeURIComponent(fileThumb.filePath)}`}
                                         alt={fileThumb.filename}
                                         loading="lazy"
                                         className="max-w-full max-h-full object-contain drop-shadow-sm"

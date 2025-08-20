@@ -9,10 +9,12 @@
     "build": "/Users/switchbox/.bun/bin/bun run build.ts",
     "api:dev": "/Users/switchbox/.bun/bin/bun --hot src/server.ts",
     "api:start": "NODE_ENV=production /Users/switchbox/.bun/bin/bun src/server.ts",
-
     "labex:sync": "/Users/switchbox/.bun/bin/bun scripts/labex_sync.ts",
     "labex:monitor": "/Users/switchbox/.bun/bin/bun scripts/labex_sync.ts --monitor",
-    "labex:once": "/Users/switchbox/.bun/bin/bun scripts/labex_sync.ts --once"
+    "labex:once": "/Users/switchbox/.bun/bin/bun scripts/labex_sync.ts --once",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",
@@ -40,9 +42,17 @@
     "zod": "^4.0.17"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.7.0",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
     "@types/bun": "latest",
+    "@types/jest": "^30.0.0",
     "@types/pg": "^8.15.5",
     "@types/react": "^19",
-    "@types/react-dom": "^19"
+    "@types/react-dom": "^19",
+    "identity-obj-proxy": "^3.0.0",
+    "jest": "^30.0.5",
+    "jest-environment-jsdom": "^30.0.5",
+    "ts-jest": "^29.4.1"
   }
 }

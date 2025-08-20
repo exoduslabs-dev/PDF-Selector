@@ -10,6 +10,8 @@ export interface Material extends BaseEntity {
   adhesive_type?: string;
   handling?: string;
   weight_gsm?: number;
+  width_mm?: number;
+  length_mm?: number;
   grain_direction?: string;
   coating?: string;
   glossy_level?: string;
@@ -18,6 +20,7 @@ export interface Material extends BaseEntity {
   pricing_unit?: string;
   cost_aud?: number;
   currency?: string;
+  stock?: number;
   stock_level?: number;
   reorder_level?: number;
   lead_time_days?: number;
@@ -99,6 +102,30 @@ export interface MaterialFieldOptions {
   handling_types: string[];
   coating_types: string[];
   pricing_units: string[];
+}
+
+// Material form data interface (matches frontend form structure)
+export interface MaterialFormData {
+  material_code: string;
+  material_name: string;
+  substrate_type: string;
+  substrate_group: string;
+  adhesive_type: string;
+  handling: string;
+  weight_gsm: number;
+  width_mm: number;
+  length_mm: number;
+  coating: string;
+  grain_direction: string;
+  glossy_level: string;
+  conductive: boolean;
+  white_material: boolean;
+  cost_aud: number;
+  stock: number;
+  reorder_level: number;
+  lead_time_days: number;
+  pricing_unit: string;
+  aliases: string;
 }
 
 // CSV import types
