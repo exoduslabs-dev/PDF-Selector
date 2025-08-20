@@ -131,7 +131,7 @@ export function JobPage() {
         <h1 className="text-3xl font-bold mb-4">Jobs</h1>
         <p className="text-red-600">Error: {error}</p>
         <p className="text-sm text-gray-600 mt-2">
-          Make sure the API server is running: <code>bun run scripts/api_server.ts</code>
+          Make sure the API server is running: <code>npm run api:dev</code>
         </p>
       </div>
     );
