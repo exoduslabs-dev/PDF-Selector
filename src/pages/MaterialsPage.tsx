@@ -19,6 +19,7 @@ export function MaterialsPage() {
   const [materialGroups, setMaterialGroups] = useState<MaterialGroup[]>([]);
   const [fieldOptions, setFieldOptions] = useState<MaterialFieldOptions>({
     substrate_types: [],
+    substrate_groups: [],
     adhesive_types: [],
     handling_types: [],
     coating_types: [],
@@ -67,8 +68,22 @@ export function MaterialsPage() {
       const response = await apiCall('/api/field-options');
       if (response.ok) {
         const data = await response.json();
-        setFieldOptions(data || {
+        // Extract options from the API response structure
+        const options = data.options || data;
+        setFieldOptions(options || {
           substrate_types: [],
+          substrate_groups: [],
+          adhesive_types: [],
+          handling_types: [],
+          coating_types: [],
+          pricing_units: []
+        });
+      } else {
+        console.warn('Failed to load field options');
+        // Keep empty arrays if API fails
+        setFieldOptions({
+          substrate_types: [],
+          substrate_groups: [],
           adhesive_types: [],
           handling_types: [],
           coating_types: [],
@@ -77,6 +92,15 @@ export function MaterialsPage() {
       }
     } catch (error) {
       console.error('Error loading field options:', error);
+      // Keep empty arrays on error
+      setFieldOptions({
+        substrate_types: [],
+        substrate_groups: [],
+        adhesive_types: [],
+        handling_types: [],
+        coating_types: [],
+        pricing_units: []
+      });
     }
   }, []);
 
@@ -288,6 +312,8 @@ Vinyl Material,VM001,vinyl,vinyl_sheets,removable,careful,120,1000,600,gloss,sho
         fieldOptions={fieldOptions}
         onSave={handleSave}
       />
+      
+
 
       {/* Config Modal: Manage Material Groups */}
       {showConfig && (

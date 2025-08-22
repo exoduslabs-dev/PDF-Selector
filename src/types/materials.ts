@@ -98,6 +98,7 @@ export interface UpdateMaterialPricingRequest extends Partial<CreateMaterialPric
 // Field options for dropdowns
 export interface MaterialFieldOptions {
   substrate_types: string[];
+  substrate_groups: string[];
   adhesive_types: string[];
   handling_types: string[];
   coating_types: string[];

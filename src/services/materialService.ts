@@ -202,23 +202,44 @@ export class MaterialService {
    */
   async getFieldOptions(): Promise<MaterialFieldOptions> {
     try {
-      const [substrateTypes, adhesiveTypes, handlingTypes, coatingTypes, pricingUnits] = await Promise.all([
+      // Get values from database
+      const [substrateTypes, substrateGroups, adhesiveTypes, handlingTypes, coatingTypes, pricingUnits] = await Promise.all([
         executeQuery('SELECT DISTINCT substrate_type FROM materials WHERE substrate_type IS NOT NULL AND substrate_type != \'\' ORDER BY substrate_type'),
+        executeQuery('SELECT DISTINCT substrate_group FROM materials WHERE substrate_group IS NOT NULL AND substrate_group != \'\' ORDER BY substrate_group'),
         executeQuery('SELECT DISTINCT adhesive_type FROM materials WHERE adhesive_type IS NOT NULL AND adhesive_type != \'\' ORDER BY adhesive_type'),
         executeQuery('SELECT DISTINCT handling FROM materials WHERE handling IS NOT NULL AND handling != \'\' ORDER BY handling'),
         executeQuery('SELECT DISTINCT coating FROM materials WHERE coating IS NOT NULL AND coating != \'\' ORDER BY coating'),
         executeQuery('SELECT DISTINCT pricing_unit FROM materials WHERE pricing_unit IS NOT NULL AND pricing_unit != \'\' ORDER BY pricing_unit')
       ]);
 
+      // Get database values
+      const dbSubstrateTypes = substrateTypes.map((r: any) => r.substrate_type);
+      const dbSubstrateGroups = substrateGroups.map((r: any) => r.substrate_group);
+      const dbAdhesiveTypes = adhesiveTypes.map((r: any) => r.adhesive_type);
+      const dbHandlingTypes = handlingTypes.map((r: any) => r.handling);
+      const dbCoatingTypes = coatingTypes.map((r: any) => r.coating);
+      const dbPricingUnits = pricingUnits.map((r: any) => r.pricing_unit);
+
+      // Return database values with fallbacks if empty
       return {
-        substrate_types: ['paper', 'vinyl', 'polyester', 'polypropylene', 'pet', 'other', ...substrateTypes.map((r: any) => r.substrate_type)].filter((v, i, a) => a.indexOf(v) === i),
-        adhesive_types: ['permanent', 'removable', 'repositionable', ...adhesiveTypes.map((r: any) => r.adhesive_type)].filter((v, i, a) => a.indexOf(v) === i),
-        handling_types: ['web', 'sheet', 'other', ...handlingTypes.map((r: any) => r.handling)].filter((v, i, a) => a.indexOf(v) === i),
-        coating_types: ['coated', 'uncoated', ...coatingTypes.map((r: any) => r.coating)].filter((v, i, a) => a.indexOf(v) === i),
-        pricing_units: ['sqm', 'linear_meter', 'sheet', 'roll', 'kg', ...pricingUnits.map((r: any) => r.pricing_unit)].filter((v, i, a) => a.indexOf(v) === i)
+        substrate_types: dbSubstrateTypes.length > 0 ? dbSubstrateTypes : ['paper', 'vinyl', 'fabric', 'plastic', 'metal', 'glass'],
+        substrate_groups: dbSubstrateGroups.length > 0 ? dbSubstrateGroups : ['paper_rolls', 'vinyl_sheets', 'fabric_rolls', 'plastic_sheets'],
+        adhesive_types: dbAdhesiveTypes.length > 0 ? dbAdhesiveTypes : ['permanent', 'removable', 'repositionable', 'none'],
+        handling_types: dbHandlingTypes.length > 0 ? dbHandlingTypes : ['normal', 'careful', 'fragile', 'temperature_controlled'],
+        coating_types: dbCoatingTypes.length > 0 ? dbCoatingTypes : ['matte', 'gloss', 'satin', 'textured', 'none'],
+        pricing_units: dbPricingUnits.length > 0 ? dbPricingUnits : ['sqm', 'linear_meter', 'piece', 'kg', 'roll']
       };
     } catch (error) {
-      throw new DatabaseError('Failed to fetch field options', error);
+      console.error('Failed to fetch field options:', error);
+      // Return fallback values if database queries fail
+      return {
+        substrate_types: ['paper', 'vinyl', 'fabric', 'plastic', 'metal', 'glass'],
+        substrate_groups: ['paper_rolls', 'vinyl_sheets', 'fabric_rolls', 'plastic_sheets'],
+        adhesive_types: ['permanent', 'removable', 'repositionable', 'none'],
+        handling_types: ['normal', 'careful', 'fragile', 'temperature_controlled'],
+        coating_types: ['matte', 'gloss', 'satin', 'textured', 'none'],
+        pricing_units: ['sqm', 'linear_meter', 'piece', 'kg', 'roll']
+      };
     }
   }
 

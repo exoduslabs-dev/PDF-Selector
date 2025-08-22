@@ -258,7 +258,7 @@ export function SupplierPricingEditor({ materialId, fieldOptions }: SupplierPric
                     onChange={(e) => setDraftUnit(e.target.value)} 
                     className="w-full px-2 py-1 border rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   >
-                    {fieldOptions.pricing_units.map(unit => (
+                    {(fieldOptions?.pricing_units || []).map(unit => (
                       <option key={unit} value={unit}>
                         {formatPricingUnit(unit)}
                       </option>

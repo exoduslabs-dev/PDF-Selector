@@ -39,7 +39,11 @@ export function GroupManager({ onChanged }: GroupManagerProps) {
       const res = await apiCall('/api/material-groups');
       if (res.ok) {
         const data = await res.json();
-        setGroups(data.groups || []);
+        console.log('Material groups API response:', data);
+        // Extract groups from the nested data structure
+        const groups = data.data?.groups || data.groups || [];
+        console.log('Extracted groups:', groups);
+        setGroups(groups);
       }
     } finally {
       setLoading(false);
