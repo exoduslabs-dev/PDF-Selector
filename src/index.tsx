@@ -13,7 +13,8 @@ async function handleRequest(request: Request): Promise<Response> {
     // Handle API routes (proxy to backend)
     if (path.startsWith('/api/')) {
       console.log(`🔄 Proxying API request to backend: ${path}`);
-      const apiUrl = `http://localhost:3001${path}`;
+      const apiUrl = `http://localhost:3001${path}${url.search}`;
+      console.log(`🔗 Full backend URL: ${apiUrl}`);
       const apiResponse = await fetch(apiUrl, {
         method: request.method,
         headers: request.headers,

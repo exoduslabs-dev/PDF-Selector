@@ -52,6 +52,8 @@ export function MaterialFormModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [subTab, setSubTab] = useState<SubTab>('details');
   const modalRef = React.useRef<HTMLDivElement>(null);
+  const scrollPositionRef = React.useRef<number>(0);
+  const [modalTopPosition, setModalTopPosition] = useState<number>(0);
 
   // Initialize form data when material prop changes
   useEffect(() => {
@@ -86,35 +88,25 @@ export function MaterialFormModal({
 
   // Handle modal scroll position preservation
   useEffect(() => {
-    let scrollY = 0;
-    
     if (isOpen) {
-      scrollY = window.pageYOffset;
+      // Save current scroll position
+      scrollPositionRef.current = window.pageYOffset;
+      // Calculate modal position relative to current scroll (add 20px offset from top of visible area)
+      setModalTopPosition(scrollPositionRef.current + 20);
+      // Prevent body scrolling while modal is open
       document.body.style.overflow = 'hidden';
-      document.body.style.position = 'fixed';
-      document.body.style.top = `-${scrollY}px`;
-      document.body.style.left = '0';
-      document.body.style.right = '0';
-      document.body.style.width = '100%';
-      
-      // Scroll modal to top
+    } else {
+      // Restore body scrolling and scroll position when modal closes
+      document.body.style.overflow = '';
+      // Small delay to ensure modal is fully closed before restoring scroll
       setTimeout(() => {
-        if (modalRef.current) {
-          modalRef.current.scrollTo({ top: 0, behavior: 'auto' });
-        }
-      }, 0);
+        window.scrollTo(0, scrollPositionRef.current);
+      }, 50);
     }
     
     return () => {
-      if (!isOpen) {
-        document.body.style.position = '';
-        document.body.style.top = '';
-        document.body.style.left = '';
-        document.body.style.right = '';
-        document.body.style.width = '';
-        document.body.style.overflow = '';
-        window.scrollTo(0, scrollY);
-      }
+      // Cleanup: always restore scrolling when component unmounts
+      document.body.style.overflow = '';
     };
   }, [isOpen]);
 
@@ -160,14 +152,50 @@ export function MaterialFormModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-[9999] flex items-start justify-center p-1 pt-0">
-      <div className="w-full max-w-[95vw] h-[calc(100vh-0.25rem)] bg-white shadow-2xl rounded-lg flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="px-6 py-4 border-b flex-shrink-0 bg-white">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold text-gray-900">
-              {material ? 'Edit Material' : 'Add New Material'}
-            </h2>
+    <div className="fixed inset-0 bg-black/50 z-[9999]">
+      <div 
+        className="absolute left-1/2 transform -translate-x-1/2 bg-white rounded-lg shadow-xl w-full max-w-7xl max-h-[90vh] overflow-hidden mx-4"
+        style={{ top: `${modalTopPosition}px` }}
+      >
+        {/* Header with Subtabs */}
+        <div className="px-6 py-4 border-b bg-white">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex space-x-6">
+              <button
+                onClick={() => setSubTab('details')}
+                className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                  subTab === 'details'
+                    ? 'bg-blue-100 text-blue-700'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                }`}
+              >
+                Material
+              </button>
+              <button
+                onClick={() => {
+                  console.log('🔍 Modal: Supplier tab clicked, current subTab:', subTab);
+                  console.log('🔍 Modal: Material object:', material);
+                  setSubTab('suppliers');
+                }}
+                className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                  subTab === 'suppliers'
+                    ? 'bg-blue-100 text-blue-700'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                }`}
+              >
+                Supplier
+              </button>
+              <button
+                onClick={() => setSubTab('history')}
+                className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                  subTab === 'history'
+                    ? 'bg-blue-100 text-blue-700'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                }`}
+              >
+                History
+              </button>
+            </div>
             <button
               onClick={handleClose}
               className="text-gray-400 hover:text-gray-600 transition-colors"
@@ -180,284 +208,277 @@ export function MaterialFormModal({
         </div>
 
         {/* Content */}
-        <div className="flex-1 min-h-0 bg-white">
-          <form onSubmit={handleSubmit} className="h-full flex flex-col">
-            <div className="flex-1 overflow-y-auto p-6 bg-white min-h-0">
-                              <div className="grid grid-cols-4 gap-x-8 gap-y-4 max-w-none">
-                 {/* Column 1 */}
-                 <div className="space-y-4">
-                   <div>
-                     <Label htmlFor="material_name" className="font-medium text-sm text-gray-900 block mb-2">Material Name</Label>
-                     <Input
-                       id="material_name"
-                       value={formData.material_name}
-                       onChange={(e) => setFormData(prev => ({ ...prev, material_name: e.target.value }))}
-                       className="w-full bg-gray-50 border border-gray-300"
-                       placeholder="Enter material name"
-                     />
-                   </div>
+        <div className="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
+          {subTab === 'details' && (
+            <form onSubmit={handleSubmit}>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+              {/* Row 1: Basic Information */}
+              <div className="col-span-2">
+                <Label htmlFor="material_name" className="font-medium text-sm text-gray-900 block mb-2">Material Name</Label>
+                <Input
+                  id="material_name"
+                  value={formData.material_name}
+                  onChange={(e) => setFormData(prev => ({ ...prev, material_name: e.target.value }))}
+                  className="w-full bg-gray-50 border border-gray-300"
+                  placeholder="Enter material name"
+                />
+              </div>
 
-                   <div>
-                     <Label htmlFor="substrate_type" className="font-medium text-sm text-gray-900 block mb-2">Substrate Type</Label>
-                     <Select key={`substrate_type_${formData.substrate_type}`} value={formData.substrate_type} onValueChange={(value) => setFormData(prev => ({ ...prev, substrate_type: value }))}>
-                       <SelectTrigger className="w-full bg-gray-50 border border-gray-300">
-                         <SelectValue placeholder="Select substrate type" />
-                       </SelectTrigger>
-                       <SelectContent className="z-[10002]">
-                         {(fieldOptions?.substrate_types || []).map(type => (
-                           <SelectItem key={type} value={type}>{type}</SelectItem>
-                         ))}
-                       </SelectContent>
-                     </Select>
-                   </div>
+              <div>
+                <Label htmlFor="material_code" className="font-medium text-sm text-gray-900 block mb-2">Material Code</Label>
+                <Input
+                  id="material_code"
+                  value={formData.material_code}
+                  onChange={(e) => setFormData(prev => ({ ...prev, material_code: e.target.value }))}
+                  className="w-full bg-gray-50 border border-gray-300"
+                  placeholder="Enter material code"
+                />
+              </div>
 
-                   <div>
-                     <Label htmlFor="adhesive_type" className="font-medium text-sm text-gray-900 block mb-2">Adhesive Type</Label>
-                     <Select key={`adhesive_type_${formData.adhesive_type}`} value={formData.adhesive_type} onValueChange={(value) => setFormData(prev => ({ ...prev, adhesive_type: value }))}>
-                       <SelectTrigger className="w-full bg-gray-50 border border-gray-300">
-                         <SelectValue placeholder="Select adhesive type" />
-                       </SelectTrigger>
-                       <SelectContent className="z-[10002]">
-                         {(fieldOptions?.adhesive_types || []).map(type => (
-                           <SelectItem key={type} value={type}>{type}</SelectItem>
-                         ))}
-                       </SelectContent>
-                     </Select>
-                   </div>
+              <div>
+                <Label htmlFor="substrate_type" className="font-medium text-sm text-gray-900 block mb-2">Substrate Type</Label>
+                <Select key={`substrate_type_${formData.substrate_type}`} value={formData.substrate_type} onValueChange={(value) => setFormData(prev => ({ ...prev, substrate_type: value }))}>
+                  <SelectTrigger className="w-full bg-gray-50 border border-gray-300">
+                    <SelectValue placeholder="Select substrate type" />
+                  </SelectTrigger>
+                  <SelectContent className="z-[10002]">
+                    {(fieldOptions?.substrate_types || []).map(type => (
+                      <SelectItem key={type} value={type}>{type}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
 
-                   <div>
-                     <Label htmlFor="weight_gsm" className="font-medium text-sm text-gray-900 block mb-2">Weight (GSM)</Label>
-                     <Input
-                       id="weight_gsm"
-                       type="number"
-                       value={formData.weight_gsm}
-                       onChange={(e) => setFormData(prev => ({ ...prev, weight_gsm: parseFloat(e.target.value) || 0 }))}
-                       className="w-full bg-gray-50 border border-gray-300"
-                       placeholder="Enter weight in GSM"
-                     />
-                   </div>
+              <div>
+                <Label htmlFor="substrate_group" className="font-medium text-sm text-gray-900 block mb-2">Substrate Group</Label>
+                <Select key={`substrate_group_${formData.substrate_group}`} value={formData.substrate_group} onValueChange={(value) => setFormData(prev => ({ ...prev, substrate_group: value }))}>
+                  <SelectTrigger className="w-full bg-gray-50 border border-gray-300">
+                    <SelectValue placeholder="Select substrate group" />
+                  </SelectTrigger>
+                  <SelectContent className="z-[10002]">
+                    {(fieldOptions?.substrate_groups || []).map(group => (
+                      <SelectItem key={group} value={group}>{group}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
 
-                   <div>
-                     <Label htmlFor="coating" className="font-medium text-sm text-gray-900 block mb-2">Coating</Label>
-                     <Select key={`coating_${formData.coating}`} value={formData.coating} onValueChange={(value) => setFormData(prev => ({ ...prev, coating: value }))}>
-                       <SelectTrigger className="w-full bg-gray-50 border border-gray-300">
-                         <SelectValue placeholder="Select coating type" />
-                       </SelectTrigger>
-                       <SelectContent className="z-[10002]">
-                         {(fieldOptions?.coating_types || []).map(type => (
-                           <SelectItem key={type} value={type}>{type}</SelectItem>
-                         ))}
-                       </SelectContent>
-                     </Select>
-                   </div>
-                 </div>
+              <div>
+                <Label htmlFor="adhesive_type" className="font-medium text-sm text-gray-900 block mb-2">Adhesive Type</Label>
+                <Select key={`adhesive_type_${formData.adhesive_type}`} value={formData.adhesive_type} onValueChange={(value) => setFormData(prev => ({ ...prev, adhesive_type: value }))}>
+                  <SelectTrigger className="w-full bg-gray-50 border border-gray-300">
+                    <SelectValue placeholder="Select adhesive type" />
+                  </SelectTrigger>
+                  <SelectContent className="z-[10002]">
+                    {(fieldOptions?.adhesive_types || []).map(type => (
+                      <SelectItem key={type} value={type}>{type}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
 
-                 {/* Column 2 */}
-                 <div className="space-y-4">
-                   <div>
-                     <Label htmlFor="material_code" className="font-medium text-sm text-gray-900 block mb-2">Material Code</Label>
-                     <Input
-                       id="material_code"
-                       value={formData.material_code}
-                       onChange={(e) => setFormData(prev => ({ ...prev, material_code: e.target.value }))}
-                       className="w-full bg-gray-50 border border-gray-300"
-                       placeholder="Enter material code"
-                     />
-                   </div>
+              {/* Row Separator */}
+              <div className="col-span-6 border-t border-gray-200 my-4"></div>
 
-                   <div>
-                     <Label htmlFor="substrate_group" className="font-medium text-sm text-gray-900 block mb-2">Substrate Group</Label>
-                     <Select key={`substrate_group_${formData.substrate_group}`} value={formData.substrate_group} onValueChange={(value) => setFormData(prev => ({ ...prev, substrate_group: value }))}>
-                       <SelectTrigger className="w-full bg-gray-50 border border-gray-300">
-                         <SelectValue placeholder="Select substrate group" />
-                       </SelectTrigger>
-                       <SelectContent className="z-[10002]">
-                         {(fieldOptions?.substrate_groups || []).map(group => (
-                           <SelectItem key={group} value={group}>{group}</SelectItem>
-                         ))}
-                       </SelectContent>
-                     </Select>
-                   </div>
+              {/* Row 2: Physical Properties */}
+              <div>
+                <Label htmlFor="weight_gsm" className="font-medium text-sm text-gray-900 block mb-2">Weight (GSM)</Label>
+                <Input
+                  id="weight_gsm"
+                  type="number"
+                  value={formData.weight_gsm}
+                  onChange={(e) => setFormData(prev => ({ ...prev, weight_gsm: parseFloat(e.target.value) || 0 }))}
+                  className="w-full bg-gray-50 border border-gray-300"
+                  placeholder="Enter weight in GSM"
+                />
+              </div>
 
-                   <div>
-                     <Label htmlFor="handling" className="font-medium text-sm text-gray-900 block mb-2">Handling</Label>
-                     <Select key={`handling_${formData.handling}`} value={formData.handling} onValueChange={(value) => setFormData(prev => ({ ...prev, handling: value }))}>
-                       <SelectTrigger className="w-full bg-gray-50 border border-gray-300">
-                         <SelectValue placeholder="Select handling type" />
-                       </SelectTrigger>
-                       <SelectContent className="z-[10002]">
-                         {(fieldOptions?.handling_types || []).map(type => (
-                           <SelectItem key={type} value={type}>{type}</SelectItem>
-                         ))}
-                       </SelectContent>
-                     </Select>
-                   </div>
+              <div>
+                <Label htmlFor="width_mm" className="font-medium text-sm text-gray-900 block mb-2">Width (mm)</Label>
+                <Input
+                  id="width_mm"
+                  type="number"
+                  value={formData.width_mm}
+                  onChange={(e) => setFormData(prev => ({ ...prev, width_mm: parseFloat(e.target.value) || 0 }))}
+                  className="w-full bg-gray-50 border border-gray-300"
+                  placeholder="Enter width in mm"
+                />
+              </div>
 
-                   <div>
-                     <Label htmlFor="width_mm" className="font-medium text-sm text-gray-900 block mb-2">Width (mm)</Label>
-                     <Input
-                       id="width_mm"
-                       type="number"
-                       value={formData.width_mm}
-                       onChange={(e) => setFormData(prev => ({ ...prev, width_mm: parseFloat(e.target.value) || 0 }))}
-                       className="w-full bg-gray-50 border border-gray-300"
-                       placeholder="Enter width in mm"
-                     />
-                   </div>
+              <div>
+                <Label htmlFor="length_mm" className="font-medium text-sm text-gray-900 block mb-2">Length (mm)</Label>
+                <Input
+                  id="length_mm"
+                  type="number"
+                  value={formData.length_mm}
+                  onChange={(e) => setFormData(prev => ({ ...prev, length_mm: parseFloat(e.target.value) || 0 }))}
+                  className="w-full bg-gray-50 border border-gray-300"
+                  placeholder="Enter length in mm"
+                />
+              </div>
 
-                   <div>
-                     <Label htmlFor="grain_direction" className="font-medium text-sm text-gray-900 block mb-2">Grain Direction</Label>
-                     <Select key={`grain_direction_${formData.grain_direction}`} value={formData.grain_direction} onValueChange={(value) => setFormData(prev => ({ ...prev, grain_direction: value }))}>
-                       <SelectTrigger className="w-full bg-gray-50 border border-gray-300">
-                         <SelectValue placeholder="Select grain direction" />
-                       </SelectTrigger>
-                       <SelectContent className="z-[10002]">
-                         <SelectItem value="long">Long</SelectItem>
-                         <SelectItem value="short">Short</SelectItem>
-                         <SelectItem value="none">None</SelectItem>
-                       </SelectContent>
-                     </Select>
-                   </div>
-                 </div>
+              <div>
+                <Label htmlFor="coating" className="font-medium text-sm text-gray-900 block mb-2">Coating</Label>
+                <Select key={`coating_${formData.coating}`} value={formData.coating} onValueChange={(value) => setFormData(prev => ({ ...prev, coating: value }))}>
+                  <SelectTrigger className="w-full bg-gray-50 border border-gray-300">
+                    <SelectValue placeholder="Select coating type" />
+                  </SelectTrigger>
+                  <SelectContent className="z-[10002]">
+                    {(fieldOptions?.coating_types || []).map(type => (
+                      <SelectItem key={type} value={type}>{type}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
 
-                 {/* Column 3 */}
-                 <div className="space-y-4">
-                   <div>
-                     <Label htmlFor="length_mm" className="font-medium text-sm text-gray-900 block mb-2">Length (mm)</Label>
-                     <Input
-                       id="length_mm"
-                       type="number"
-                       value={formData.length_mm}
-                       onChange={(e) => setFormData(prev => ({ ...prev, length_mm: parseFloat(e.target.value) || 0 }))}
-                       className="w-full bg-gray-50 border border-gray-300"
-                       placeholder="Enter length in mm"
-                     />
-                   </div>
+              <div>
+                <Label htmlFor="handling" className="font-medium text-sm text-gray-900 block mb-2">Handling</Label>
+                <Select key={`handling_${formData.handling}`} value={formData.handling} onValueChange={(value) => setFormData(prev => ({ ...prev, handling: value }))}>
+                  <SelectTrigger className="w-full bg-gray-50 border border-gray-300">
+                    <SelectValue placeholder="Select handling type" />
+                  </SelectTrigger>
+                  <SelectContent className="z-[10002]">
+                    {(fieldOptions?.handling_types || []).map(type => (
+                      <SelectItem key={type} value={type}>{type}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
 
-                   <div>
-                     <Label htmlFor="glossy_level" className="font-medium text-sm text-gray-900 block mb-2">Glossy Level</Label>
-                     <Select key={`glossy_level_${formData.glossy_level}`} value={formData.glossy_level} onValueChange={(value) => setFormData(prev => ({ ...prev, glossy_level: value }))}>
-                       <SelectTrigger className="w-full bg-gray-50 border border-gray-300">
-                         <SelectValue placeholder="Select glossy level" />
-                       </SelectTrigger>
-                       <SelectContent className="z-[10002]">
-                         <SelectItem value="low">Low</SelectItem>
-                         <SelectItem value="medium">Medium</SelectItem>
-                         <SelectItem value="high">High</SelectItem>
-                       </SelectContent>
-                     </Select>
-                   </div>
+              <div>
+                <Label htmlFor="pricing_unit" className="font-medium text-sm text-gray-900 block mb-2">Pricing Unit</Label>
+                <Select key={`pricing_unit_${formData.pricing_unit}`} value={formData.pricing_unit} onValueChange={(value) => setFormData(prev => ({ ...prev, pricing_unit: value }))}>
+                  <SelectTrigger className="w-full bg-gray-50 border border-gray-300">
+                    <SelectValue placeholder="Select pricing unit" />
+                  </SelectTrigger>
+                  <SelectContent className="z-[10002]">
+                    {(fieldOptions?.pricing_units || []).map(unit => (
+                      <SelectItem key={unit} value={unit}>{unit}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
 
-                   <div>
-                     <Label htmlFor="white_material" className="font-medium text-sm text-gray-900 block mb-2">White Material</Label>
-                     <Select key={`white_material_${formData.white_material}`} value={formData.white_material.toString()} onValueChange={(value) => setFormData(prev => ({ ...prev, white_material: value === 'true' }))}>
-                       <SelectTrigger className="w-full bg-gray-50 border border-gray-300">
-                         <SelectValue placeholder="Select white material" />
-                       </SelectTrigger>
-                       <SelectContent className="z-[10002]">
-                         <SelectItem value="true">Yes</SelectItem>
-                         <SelectItem value="false">No</SelectItem>
-                       </SelectContent>
-                     </Select>
-                   </div>
+              {/* Row Separator */}
+              <div className="col-span-6 border-t border-gray-200 my-4"></div>
 
-                   <div>
-                     <Label htmlFor="stock" className="font-medium text-sm text-gray-900 block mb-2">Stock</Label>
-                     <Input
-                       id="stock"
-                       type="number"
-                       value={formData.stock}
-                       onChange={(e) => setFormData(prev => ({ ...prev, stock: parseInt(e.target.value) || 0 }))}
-                       className="w-full bg-gray-50 border border-gray-300"
-                       placeholder="Enter stock quantity"
-                     />
-                   </div>
+              {/* Row 3: Additional Properties */}
+              <div>
+                <Label htmlFor="grain_direction" className="font-medium text-sm text-gray-900 block mb-2">Grain Direction</Label>
+                <Input
+                  id="grain_direction"
+                  value={formData.grain_direction}
+                  onChange={(e) => setFormData(prev => ({ ...prev, grain_direction: e.target.value }))}
+                  className="w-full bg-gray-50 border border-gray-300"
+                  placeholder="Enter grain direction"
+                />
+              </div>
 
-                   <div>
-                     <Label htmlFor="pricing_unit" className="font-medium text-sm text-gray-900 block mb-2">Pricing Unit</Label>
-                     <Select key={`pricing_unit_${formData.pricing_unit}`} value={formData.pricing_unit} onValueChange={(value) => setFormData(prev => ({ ...prev, pricing_unit: value }))}>
-                       <SelectTrigger className="w-full bg-gray-50 border border-gray-300">
-                         <SelectValue placeholder="Select pricing unit" />
-                       </SelectTrigger>
-                       <SelectContent className="z-[10002]">
-                         {(fieldOptions?.pricing_units || []).map(unit => (
-                           <SelectItem key={unit} value={unit}>{unit}</SelectItem>
-                         ))}
-                       </SelectContent>
-                     </Select>
-                   </div>
-                 </div>
+              <div>
+                <Label htmlFor="glossy_level" className="font-medium text-sm text-gray-900 block mb-2">Glossy Level</Label>
+                <Input
+                  id="glossy_level"
+                  value={formData.glossy_level}
+                  onChange={(e) => setFormData(prev => ({ ...prev, glossy_level: e.target.value }))}
+                  className="w-full bg-gray-50 border border-gray-300"
+                  placeholder="Enter glossy level"
+                />
+              </div>
 
-                 {/* Column 4 */}
-                 <div className="space-y-4">
-                   <div>
-                     <Label htmlFor="conductive" className="font-medium text-sm text-gray-900 block mb-2">Conductive</Label>
-                     <Select key={`conductive_${formData.conductive}`} value={formData.conductive.toString()} onValueChange={(value) => setFormData(prev => ({ ...prev, conductive: value === 'true' }))}>
-                       <SelectTrigger className="w-full bg-gray-50 border border-gray-300">
-                         <SelectValue placeholder="Select conductivity" />
-                       </SelectTrigger>
-                       <SelectContent className="z-[10002]">
-                         <SelectItem value="true">Yes</SelectItem>
-                         <SelectItem value="false">No</SelectItem>
-                       </SelectContent>
-                     </Select>
-                   </div>
+              <div>
+                <Label htmlFor="conductive" className="font-medium text-sm text-gray-900 block mb-2">Conductive</Label>
+                <Select key={`conductive_${formData.conductive}`} value={formData.conductive.toString()} onValueChange={(value) => setFormData(prev => ({ ...prev, conductive: value === 'true' }))}>
+                  <SelectTrigger className="w-full bg-gray-50 border border-gray-300">
+                    <SelectValue placeholder="Select conductivity" />
+                  </SelectTrigger>
+                  <SelectContent className="z-[10002]">
+                    <SelectItem value="true">Yes</SelectItem>
+                    <SelectItem value="false">No</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
 
-                   <div>
-                     <Label htmlFor="cost_aud" className="font-medium text-sm text-gray-900 block mb-2">Cost (AUD)</Label>
-                     <Input
-                       id="cost_aud"
-                       type="number"
-                       step="0.01"
-                       value={formData.cost_aud}
-                       onChange={(e) => setFormData(prev => ({ ...prev, cost_aud: parseFloat(e.target.value) || 0 }))}
-                       className="w-full bg-gray-50 border border-gray-300"
-                       placeholder="Enter cost in AUD"
-                     />
-                   </div>
+              <div>
+                <Label htmlFor="white_material" className="font-medium text-sm text-gray-900 block mb-2">White Material</Label>
+                <Select key={`white_material_${formData.white_material}`} value={formData.white_material.toString()} onValueChange={(value) => setFormData(prev => ({ ...prev, white_material: value === 'true' }))}>
+                  <SelectTrigger className="w-full bg-gray-50 border border-gray-300">
+                    <SelectValue placeholder="Select white material" />
+                  </SelectTrigger>
+                  <SelectContent className="z-[10002]">
+                    <SelectItem value="true">Yes</SelectItem>
+                    <SelectItem value="false">No</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
 
-                   <div>
-                     <Label htmlFor="reorder_level" className="font-medium text-sm text-gray-900 block mb-2">Reorder Level</Label>
-                     <Input
-                       id="reorder_level"
-                       type="number"
-                       value={formData.reorder_level}
-                       onChange={(e) => setFormData(prev => ({ ...prev, reorder_level: parseInt(e.target.value) || 0 }))}
-                       className="w-full bg-gray-50 border border-gray-300"
-                       placeholder="Enter reorder level"
-                     />
-                   </div>
+              <div>
+                <Label htmlFor="cost_aud" className="font-medium text-sm text-gray-900 block mb-2">Cost (AUD)</Label>
+                <Input
+                  id="cost_aud"
+                  type="number"
+                  step="0.01"
+                  value={formData.cost_aud}
+                  onChange={(e) => setFormData(prev => ({ ...prev, cost_aud: parseFloat(e.target.value) || 0 }))}
+                  className="w-full bg-gray-50 border border-gray-300"
+                  placeholder="Enter cost in AUD"
+                />
+              </div>
 
-                   <div>
-                     <Label htmlFor="lead_time_days" className="font-medium text-sm text-gray-900 block mb-2">Lead Time (Days)</Label>
-                     <Input
-                       id="lead_time_days"
-                       type="number"
-                       value={formData.lead_time_days}
-                       onChange={(e) => setFormData(prev => ({ ...prev, lead_time_days: parseInt(e.target.value) || 0 }))}
-                       className="w-full bg-gray-50 border border-gray-300"
-                       placeholder="Enter lead time in days"
-                     />
-                   </div>
+              <div>
+                <Label htmlFor="stock" className="font-medium text-sm text-gray-900 block mb-2">Stock</Label>
+                <Input
+                  id="stock"
+                  type="number"
+                  value={formData.stock}
+                  onChange={(e) => setFormData(prev => ({ ...prev, stock: parseFloat(e.target.value) || 0 }))}
+                  className="w-full bg-gray-50 border border-gray-300"
+                  placeholder="Enter stock quantity"
+                />
+              </div>
 
-                   <div>
-                     <Label htmlFor="aliases" className="font-medium text-sm text-gray-900 block mb-2">Aliases</Label>
-                     <Textarea
-                       id="aliases"
-                       value={formData.aliases}
-                       onChange={(e) => setFormData(prev => ({ ...prev, aliases: e.target.value }))}
-                       className="w-full bg-gray-50 border border-gray-300"
-                       placeholder="Enter aliases (comma-separated)"
-                       rows={3}
-                     />
-                   </div>
-                 </div>
-               </div>
+              {/* Row Separator */}
+              <div className="col-span-6 border-t border-gray-200 my-4"></div>
+
+              {/* Row 4: Final Properties */}
+              <div>
+                <Label htmlFor="reorder_level" className="font-medium text-sm text-gray-900 block mb-2">Reorder Level</Label>
+                <Input
+                  id="reorder_level"
+                  type="number"
+                  value={formData.reorder_level}
+                  onChange={(e) => setFormData(prev => ({ ...prev, reorder_level: parseInt(e.target.value) || 0 }))}
+                  className="w-full bg-gray-50 border border-gray-300"
+                  placeholder="Enter reorder level"
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="lead_time_days" className="font-medium text-sm text-gray-900 block mb-2">Lead Time (Days)</Label>
+                <Input
+                  id="lead_time_days"
+                  type="number"
+                  value={formData.lead_time_days}
+                  onChange={(e) => setFormData(prev => ({ ...prev, lead_time_days: parseInt(e.target.value) || 0 }))}
+                  className="w-full bg-gray-50 border border-gray-300"
+                  placeholder="Enter lead time in days"
+                />
+              </div>
+
+              <div className="col-span-4">
+                <Label htmlFor="aliases" className="font-medium text-sm text-gray-900 block mb-2">Aliases</Label>
+                <Textarea
+                  id="aliases"
+                  value={formData.aliases}
+                  onChange={(e) => setFormData(prev => ({ ...prev, aliases: e.target.value }))}
+                  className="w-full bg-gray-50 border border-gray-300"
+                  placeholder="Enter aliases (comma-separated)"
+                  rows={3}
+                />
+              </div>
             </div>
 
-            {/* Actions */}
-            <div className="px-6 py-4 border-t flex-shrink-0 bg-white">
-              <div className="flex justify-end gap-3">
+                          {/* Actions */}
+              <div className="flex justify-end gap-3 mt-6 pt-4 border-t">
                 <Button type="button" variant="outline" onClick={handleClose}>
                   Cancel
                 </Button>
@@ -465,8 +486,45 @@ export function MaterialFormModal({
                   {material ? 'Update Material' : 'Add Material'}
                 </Button>
               </div>
+            </form>
+          )}
+
+          {subTab === 'suppliers' && material && (
+            <div className="text-center py-8">
+              <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded">
+                <p className="text-sm text-blue-800">🔍 Debug: subTab = {subTab}, material exists = {!!material}</p>
+                <p className="text-sm text-blue-800">🔍 Debug: materialId = {material?.material_id}</p>
+              </div>
+              <SupplierPricingEditor 
+                materialId={material.material_id}
+                fieldOptions={fieldOptions}
+              />
             </div>
-          </form>
+          )}
+
+          {subTab === 'suppliers' && !material && (
+            <div className="text-center py-8">
+              <div className="text-gray-500">
+                <svg className="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">Supplier Pricing</h3>
+                <p className="text-gray-600">Save the material first to manage supplier pricing.</p>
+              </div>
+            </div>
+          )}
+
+          {subTab === 'history' && (
+            <div className="text-center py-8">
+              <div className="text-gray-500">
+                <svg className="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">Material History</h3>
+                <p className="text-gray-600">Material change history will be displayed here.</p>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

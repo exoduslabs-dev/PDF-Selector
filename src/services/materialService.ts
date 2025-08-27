@@ -278,7 +278,7 @@ export class MaterialService {
   // Material Pricing methods
   async getMaterialPricing(materialId: string): Promise<MaterialSupplierPricing[]> {
     try {
-      return await executeQuery<MaterialSupplierPricing>(
+      const results = await executeQuery<any>(
         `SELECT msp.pricing_id, msp.supplier_id, s.supplier_name, msp.pricing_unit, 
                 msp.cost_per_unit, msp.is_preferred_supplier, msp.is_active, msp.notes
          FROM material_supplier_pricing msp
@@ -287,6 +287,14 @@ export class MaterialService {
          ORDER BY msp.is_preferred_supplier DESC, msp.created_at DESC`,
         [materialId]
       );
+      
+      // Convert string values to proper types before returning
+      return results.map((row: any) => ({
+        ...row,
+        cost_per_unit: parseFloat(row.cost_per_unit) || 0,
+        is_preferred_supplier: Boolean(row.is_preferred_supplier),
+        is_active: Boolean(row.is_active)
+      }));
     } catch (error) {
       throw new DatabaseError('Failed to fetch material pricing', error);
     }
@@ -302,7 +310,7 @@ export class MaterialService {
 
       if (existing) {
         // Update existing record
-        const result = await executeQuerySingle<MaterialSupplierPricing>(
+        const result = await executeQuerySingle<any>(
           `UPDATE material_supplier_pricing SET
              cost_per_unit = $1,
              pricing_unit = COALESCE($2, pricing_unit),
@@ -318,11 +326,17 @@ export class MaterialService {
           throw new DatabaseError('Failed to update material pricing');
         }
 
-        return result;
+        // Convert string values to proper types
+        return {
+          ...result,
+          cost_per_unit: parseFloat(result.cost_per_unit) || 0,
+          is_preferred_supplier: Boolean(result.is_preferred_supplier),
+          is_active: Boolean(result.is_active)
+        };
       } else {
         // Insert new record
         const pricingId = generatePricingId();
-        const result = await executeQuerySingle<MaterialSupplierPricing>(
+        const result = await executeQuerySingle<any>(
           `INSERT INTO material_supplier_pricing (
              pricing_id, material_id, supplier_id, cost_per_unit, pricing_unit, 
              is_preferred_supplier, is_active, notes, created_at, updated_at
@@ -344,7 +358,13 @@ export class MaterialService {
           throw new DatabaseError('Failed to create material pricing');
         }
 
-        return result;
+        // Convert string values to proper types
+        return {
+          ...result,
+          cost_per_unit: parseFloat(result.cost_per_unit) || 0,
+          is_preferred_supplier: Boolean(result.is_preferred_supplier),
+          is_active: Boolean(result.is_active)
+        };
       }
     } catch (error) {
       throw new DatabaseError('Failed to create material pricing', error);
@@ -353,7 +373,7 @@ export class MaterialService {
 
   async updateMaterialPricing(pricingId: string, data: Partial<UpdateMaterialPricingRequest>): Promise<MaterialSupplierPricing> {
     try {
-      const result = await executeQuerySingle<MaterialSupplierPricing>(
+      const result = await executeQuerySingle<any>(
         `UPDATE material_supplier_pricing SET
            supplier_id = COALESCE($2, supplier_id),
            cost_per_unit = COALESCE($3, cost_per_unit),
@@ -377,7 +397,13 @@ export class MaterialService {
         throw new NotFoundError('Material pricing', pricingId);
       }
 
-      return result;
+      // Convert string values to proper types
+      return {
+        ...result,
+        cost_per_unit: parseFloat(result.cost_per_unit) || 0,
+        is_preferred_supplier: Boolean(result.is_preferred_supplier),
+        is_active: Boolean(result.is_active)
+      };
     } catch (error) {
       if (error instanceof NotFoundError) throw error;
       throw new DatabaseError('Failed to update material pricing', error);

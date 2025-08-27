@@ -32,30 +32,55 @@ export function SupplierPricingEditor({ materialId, fieldOptions }: SupplierPric
   const [draftSupplier, setDraftSupplier] = React.useState<string>('');
   const [draftPrice, setDraftPrice] = React.useState<string>('');
   const [draftUnit, setDraftUnit] = React.useState<string>('sqm');
+  const [saving, setSaving] = React.useState(false);
 
   const load = React.useCallback(async () => {
-    if (!materialId) return;
+    if (!materialId) {
+      console.log('🔍 SupplierPricingEditor: No materialId provided, skipping load');
+      return;
+    }
+    
+    console.log('🔍 SupplierPricingEditor: Loading data for materialId:', materialId);
     setLoading(true);
+    
     try {
+      const pricingUrl = `/api/material-pricing?material_id=${encodeURIComponent(materialId)}`;
+      console.log('🔍 SupplierPricingEditor: Full pricing URL:', pricingUrl);
+      console.log('🔍 SupplierPricingEditor: materialId value:', materialId);
+      console.log('🔍 SupplierPricingEditor: materialId type:', typeof materialId);
+      
       const [pricingResponse, suppliersResponse] = await Promise.all([
-        apiCall(`/api/material-pricing?material_id=${encodeURIComponent(materialId)}`),
+        apiCall(pricingUrl),
         apiCall('/api/suppliers')
       ]);
       
+      console.log('🔍 SupplierPricingEditor: Pricing response status:', pricingResponse.status);
+      console.log('🔍 SupplierPricingEditor: Suppliers response status:', suppliersResponse.status);
+      
       if (pricingResponse.ok) {
         const data = await pricingResponse.json();
+        console.log('🔍 SupplierPricingEditor: Pricing data received:', data);
         setRows(data.items || []);
+      } else {
+        console.error('🔍 SupplierPricingEditor: Pricing response not ok:', pricingResponse.status, pricingResponse.statusText);
+        const errorText = await pricingResponse.text();
+        console.error('🔍 SupplierPricingEditor: Error response body:', errorText);
       }
       
       if (suppliersResponse.ok) {
         const data = await suppliersResponse.json();
+        console.log('🔍 SupplierPricingEditor: Suppliers data received:', data);
         setSuppliers((data.suppliers || []).map((x: any) => ({ 
           supplier_id: x.supplier_id, 
           supplier_name: x.supplier_name 
         })));
+      } else {
+        console.error('🔍 SupplierPricingEditor: Suppliers response not ok:', suppliersResponse.status, suppliersResponse.statusText);
+        const errorText = await suppliersResponse.text();
+        console.error('🔍 SupplierPricingEditor: Error response body:', errorText);
       }
     } catch (error) {
-      console.error('Failed to load pricing data:', error);
+      console.error('🔍 SupplierPricingEditor: Failed to load pricing data:', error);
     } finally {
       setLoading(false);
     }
@@ -66,14 +91,15 @@ export function SupplierPricingEditor({ materialId, fieldOptions }: SupplierPric
   }, [load]);
 
   const saveRow = async (id: string) => {
-    if (!materialId) return;
+    if (!materialId || saving) return;
     
     const unitPrice = parseFloat(draftPrice);
-    if (Number.isNaN(unitPrice)) {
+    if (Number.isNaN(unitPrice) || unitPrice < 0) {
       alert('Enter a valid price');
       return;
     }
 
+    setSaving(true);
     const isTemp = id.startsWith('temp-');
     const payload = { 
       supplier_id: draftSupplier || null, 
@@ -85,40 +111,58 @@ export function SupplierPricingEditor({ materialId, fieldOptions }: SupplierPric
       let response: Response;
       if (isTemp) {
         response = await apiCall('/api/material-pricing', { 
-          method: 'POST', 
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
           body: JSON.stringify({ material_id: materialId, ...payload }) 
         });
       } else {
         response = await apiCall(`/api/material-pricing/${id}`, { 
-          method: 'PUT', 
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
           body: JSON.stringify(payload) 
         });
       }
 
       if (!response.ok) {
+        const errorData = await response.text();
+        console.error('Save failed:', errorData);
         alert('Failed to save pricing');
         return;
       }
 
+      // Reset form state
       setEditingId(null);
       setDraftPrice('');
       setDraftSupplier('');
       setDraftUnit('sqm');
+      
+      // Reload data
       await load();
     } catch (error) {
       console.error('Failed to save pricing:', error);
       alert('Failed to save pricing');
+    } finally {
+      setSaving(false);
     }
   };
 
   const deleteRow = async (id: string) => {
-    if (!confirm('Delete this pricing entry?')) return;
+    if (!window.confirm('Delete this pricing entry?')) return;
 
     try {
-      const response = await apiCall(`/api/material-pricing/${id}`, { method: 'DELETE' });
+      const response = await apiCall(`/api/material-pricing/${id}`, { 
+        method: 'DELETE' 
+      });
+      
       if (response.ok) {
         await load();
       } else {
+        const errorData = await response.text();
+        console.error('Delete failed:', errorData);
         alert('Failed to delete pricing');
       }
     } catch (error) {
@@ -128,6 +172,9 @@ export function SupplierPricingEditor({ materialId, fieldOptions }: SupplierPric
   };
 
   const startEditing = (row: PricingRow) => {
+    // Cancel any existing temp rows first
+    setRows(prev => prev.filter(r => !r.pricing_id.startsWith('temp-')));
+    
     setEditingId(row.pricing_id);
     setDraftSupplier(row.supplier_id || '');
     setDraftPrice(String(row.cost_per_unit ?? ''));
@@ -135,6 +182,11 @@ export function SupplierPricingEditor({ materialId, fieldOptions }: SupplierPric
   };
 
   const addNewPricing = () => {
+    // Cancel any existing editing
+    if (editingId) {
+      cancelEditing();
+    }
+    
     const tempId = `temp-${Date.now()}`;
     const newRow: PricingRow = {
       pricing_id: tempId,
@@ -173,20 +225,35 @@ export function SupplierPricingEditor({ materialId, fieldOptions }: SupplierPric
     return unitLabels[unit] || unit;
   };
 
+  // Handle key press for better UX
+  const handleKeyPress = (e: React.KeyboardEvent, rowId: string) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      saveRow(rowId);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      cancelEditing();
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold">Supplier Pricing</h3>
-        <Button onClick={addNewPricing} variant="outline">
+        <Button 
+          onClick={addNewPricing} 
+          variant="outline"
+          disabled={loading || saving || !!editingId}
+        >
           + Add Pricing
         </Button>
       </div>
 
       <div className="text-sm text-gray-600">
-        Click on a supplier name to edit pricing details. Changes are saved immediately.
+        Click on a supplier name to edit pricing details. Press Enter to save, Escape to cancel.
       </div>
 
-      <div className="border rounded-md overflow-hidden">
+      <div className="border rounded-md overflow-hidden bg-white">
         <div className="grid grid-cols-5 gap-2 bg-gray-50 p-3 text-sm font-medium border-b">
           <div>Supplier</div>
           <div>Cost (AUD)</div>
@@ -196,137 +263,162 @@ export function SupplierPricingEditor({ materialId, fieldOptions }: SupplierPric
         </div>
 
         {loading ? (
-          <div className="p-4 text-center text-gray-500">Loading pricing data...</div>
+          <div className="p-8 text-center text-gray-500">
+            <div className="animate-pulse">Loading pricing data...</div>
+          </div>
         ) : rows.length === 0 ? (
-          <div className="p-4 text-center text-gray-500">
-            <div className="mb-2">No supplier pricing configured yet.</div>
+          <div className="p-8 text-center text-gray-500">
+            <div className="mb-3">No supplier pricing configured yet.</div>
             <Button onClick={addNewPricing} variant="outline" size="sm">
               Add First Pricing Entry
             </Button>
           </div>
         ) : (
-          rows.map((row) => (
-            <div key={row.pricing_id} className="grid grid-cols-5 gap-2 p-3 border-b last:border-b-0 items-center text-sm hover:bg-gray-50">
-              {/* Supplier */}
-              <div>
-                {editingId === row.pricing_id ? (
-                  <select 
-                    value={draftSupplier} 
-                    onChange={(e) => setDraftSupplier(e.target.value)} 
-                    className="w-full px-2 py-1 border rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  >
-                    <option value="">(No supplier)</option>
-                    {suppliers.map(supplier => (
-                      <option key={supplier.supplier_id} value={supplier.supplier_id}>
-                        {supplier.supplier_name || supplier.supplier_id}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <button 
-                    className="text-blue-600 hover:text-blue-800 underline text-left"
-                    onClick={() => startEditing(row)}
-                  >
-                    {row.supplier_name || row.supplier_id || '(No supplier)'}
-                  </button>
-                )}
-              </div>
-
-              {/* Cost */}
-              <div>
-                {editingId === row.pricing_id ? (
-                  <Input 
-                    type="number"
-                    step="0.01"
-                    value={draftPrice} 
-                    onChange={(e) => setDraftPrice(e.target.value)}
-                    placeholder="0.00"
-                    className="w-full"
-                  />
-                ) : (
-                  <span className="font-mono">
-                    ${Number(row.cost_per_unit || 0).toFixed(2)}
-                  </span>
-                )}
-              </div>
-
-              {/* Unit */}
-              <div>
-                {editingId === row.pricing_id ? (
-                  <select 
-                    value={draftUnit} 
-                    onChange={(e) => setDraftUnit(e.target.value)} 
-                    className="w-full px-2 py-1 border rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  >
-                    {(fieldOptions?.pricing_units || []).map(unit => (
-                      <option key={unit} value={unit}>
-                        {formatPricingUnit(unit)}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <span className="text-gray-600">
-                    {formatPricingUnit(row.pricing_unit)}
-                  </span>
-                )}
-              </div>
-
-              {/* Preferred */}
-              <div>
-                {row.is_preferred_supplier && (
-                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                    ⭐ Preferred
-                  </span>
-                )}
-              </div>
-
-              {/* Actions */}
-              <div className="flex gap-2">
-                {editingId === row.pricing_id ? (
-                  <>
-                    <Button 
-                      variant="outline" 
-                      size="sm"
-                      onClick={() => saveRow(row.pricing_id)}
+          <div className="divide-y">
+            {rows.map((row) => (
+              <div 
+                key={row.pricing_id} 
+                className={`grid grid-cols-5 gap-2 p-3 items-center text-sm transition-colors ${
+                  editingId === row.pricing_id ? 'bg-blue-50' : 'hover:bg-gray-50'
+                }`}
+              >
+                {/* Supplier */}
+                <div>
+                  {editingId === row.pricing_id ? (
+                    <select 
+                      value={draftSupplier} 
+                      onChange={(e) => setDraftSupplier(e.target.value)} 
+                      onKeyDown={(e) => handleKeyPress(e, row.pricing_id)}
+                      className="w-full px-2 py-1 border rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      disabled={saving}
                     >
-                      Save
-                    </Button>
-                    <Button 
-                      variant="ghost" 
-                      size="sm"
-                      onClick={cancelEditing}
-                    >
-                      Cancel
-                    </Button>
-                  </>
-                ) : (
-                  <>
-                    <Button 
-                      variant="outline" 
-                      size="sm"
+                      <option value="">(No supplier)</option>
+                      {suppliers.map(supplier => (
+                        <option key={supplier.supplier_id} value={supplier.supplier_id}>
+                          {supplier.supplier_name || supplier.supplier_id}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <button 
+                      className="text-blue-600 hover:text-blue-800 underline text-left w-full text-sm"
                       onClick={() => startEditing(row)}
+                      disabled={!!editingId || saving}
                     >
-                      Edit
-                    </Button>
-                    <Button 
-                      variant="ghost" 
-                      size="sm"
-                      onClick={() => deleteRow(row.pricing_id)}
-                      className="text-red-600 hover:text-red-700"
+                      {row.supplier_name || row.supplier_id || '(No supplier)'}
+                    </button>
+                  )}
+                </div>
+
+                {/* Cost */}
+                <div>
+                  {editingId === row.pricing_id ? (
+                    <Input 
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={draftPrice} 
+                      onChange={(e) => setDraftPrice(e.target.value)}
+                      onKeyDown={(e) => handleKeyPress(e, row.pricing_id)}
+                      placeholder="0.00"
+                      className="w-full text-sm"
+                      disabled={saving}
+                    />
+                  ) : (
+                    <span className="font-mono">
+                      ${Number(row.cost_per_unit || 0).toFixed(2)}
+                    </span>
+                  )}
+                </div>
+
+                {/* Unit */}
+                <div>
+                  {editingId === row.pricing_id ? (
+                    <select 
+                      value={draftUnit} 
+                      onChange={(e) => setDraftUnit(e.target.value)} 
+                      onKeyDown={(e) => handleKeyPress(e, row.pricing_id)}
+                      className="w-full px-2 py-1 border rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      disabled={saving}
                     >
-                      Delete
-                    </Button>
-                  </>
-                )}
+                      {(fieldOptions?.pricing_units || ['sqm']).map(unit => (
+                        <option key={unit} value={unit}>
+                          {formatPricingUnit(unit)}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className="text-gray-600 text-sm">
+                      {formatPricingUnit(row.pricing_unit)}
+                    </span>
+                  )}
+                </div>
+
+                {/* Preferred */}
+                <div>
+                  {row.is_preferred_supplier && (
+                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                      ⭐ Preferred
+                    </span>
+                  )}
+                </div>
+
+                {/* Actions */}
+                <div className="flex gap-1">
+                  {editingId === row.pricing_id ? (
+                    <>
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={() => saveRow(row.pricing_id)}
+                        disabled={saving}
+                        className="text-xs px-2"
+                      >
+                        {saving ? 'Saving...' : 'Save'}
+                      </Button>
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={cancelEditing}
+                        disabled={saving}
+                        className="text-xs px-2"
+                      >
+                        Cancel
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={() => startEditing(row)}
+                        disabled={!!editingId || saving}
+                        className="text-xs px-2"
+                      >
+                        Edit
+                      </Button>
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => deleteRow(row.pricing_id)}
+                        disabled={!!editingId || saving}
+                        className="text-red-600 hover:text-red-700 text-xs px-2"
+                      >
+                        Delete
+                      </Button>
+                    </>
+                  )}
+                </div>
               </div>
-            </div>
-          ))
+            ))}
+          </div>
         )}
       </div>
 
       {rows.length > 0 && (
         <div className="text-sm text-gray-500">
-          Total pricing entries: {rows.length}
+          Total pricing entries: {rows.filter(row => !row.pricing_id.startsWith('temp-')).length}
+          {editingId && editingId.startsWith('temp-') && ' (1 unsaved)'}
         </div>
       )}
     </div>
