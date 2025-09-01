@@ -1,5 +1,6 @@
 import { executeQuery, executeQuerySingle } from '../config/database.js';
-import { Supplier, CreateSupplierRequest, UpdateSupplierRequest } from '../types/suppliers.js';
+import type { Supplier } from '../types/suppliers.js';
+import type { CreateSupplierRequest, UpdateSupplierRequest } from '../types/suppliers.js';
 import { DatabaseError, NotFoundError } from '../types/common.js';
 import { generateSupplierId } from '../utils/codeGenerator.js';
 
@@ -63,7 +64,7 @@ export class SupplierService {
       
       const query = `
         INSERT INTO suppliers (
-          supplier_id, supplier_name, contact_name, contact_email, contact_phone,
+          supplier_id, supplier_name, contact_person, email, phone,
           address, city, state, postal_code, country, website, notes,
           payment_terms, delivery_terms, rating, is_active, created_at, updated_at
         )
@@ -76,9 +77,9 @@ export class SupplierService {
       const result = await executeQuerySingle<Supplier>(query, [
         supplierId,
         data.supplier_name,
-        data.contact_name,
-        data.contact_email,
-        data.contact_phone,
+        data.contact_name, // correct property name
+        data.contact_email, // correct property name
+        data.contact_phone, // correct property name
         data.address,
         data.city,
         data.state,
@@ -112,9 +113,9 @@ export class SupplierService {
       const query = `
         UPDATE suppliers SET
           supplier_name = COALESCE($2, supplier_name),
-          contact_name = COALESCE($3, contact_name),
-          contact_email = COALESCE($4, contact_email),
-          contact_phone = COALESCE($5, contact_phone),
+          contact_person = COALESCE($3, contact_person),
+          email = COALESCE($4, email),
+          phone = COALESCE($5, phone),
           address = COALESCE($6, address),
           city = COALESCE($7, city),
           state = COALESCE($8, state),
@@ -133,9 +134,9 @@ export class SupplierService {
       const result = await executeQuerySingle<Supplier>(query, [
         data.supplier_id,
         data.supplier_name,
-        data.contact_name,
-        data.contact_email,
-        data.contact_phone,
+        data.contact_name, // correct property name
+        data.contact_email, // correct property name
+        data.contact_phone, // correct property name
         data.address,
         data.city,
         data.state,

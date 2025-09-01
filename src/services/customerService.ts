@@ -38,7 +38,7 @@ export class CustomerService {
         'SELECT * FROM customers WHERE customer_id = $1',
         [customerId]
       );
-      return result.length > 0 ? result[0] : null;
+      return result.length > 0 && result[0] !== undefined ? result[0] : null;
     } catch (error) {
       throw new DatabaseError('Failed to fetch customer', error);
     }
