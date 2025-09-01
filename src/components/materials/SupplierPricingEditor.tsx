@@ -36,51 +36,31 @@ export function SupplierPricingEditor({ materialId, fieldOptions }: SupplierPric
 
   const load = React.useCallback(async () => {
     if (!materialId) {
-      console.log('🔍 SupplierPricingEditor: No materialId provided, skipping load');
       return;
     }
-    
-    console.log('🔍 SupplierPricingEditor: Loading data for materialId:', materialId);
     setLoading(true);
-    
     try {
       const pricingUrl = `/api/material-pricing?material_id=${encodeURIComponent(materialId)}`;
-      console.log('🔍 SupplierPricingEditor: Full pricing URL:', pricingUrl);
-      console.log('🔍 SupplierPricingEditor: materialId value:', materialId);
-      console.log('🔍 SupplierPricingEditor: materialId type:', typeof materialId);
-      
       const [pricingResponse, suppliersResponse] = await Promise.all([
         apiCall(pricingUrl),
         apiCall('/api/suppliers')
       ]);
-      
-      console.log('🔍 SupplierPricingEditor: Pricing response status:', pricingResponse.status);
-      console.log('🔍 SupplierPricingEditor: Suppliers response status:', suppliersResponse.status);
-      
       if (pricingResponse.ok) {
         const data = await pricingResponse.json();
-        console.log('🔍 SupplierPricingEditor: Pricing data received:', data);
         setRows(data.items || []);
       } else {
-        console.error('🔍 SupplierPricingEditor: Pricing response not ok:', pricingResponse.status, pricingResponse.statusText);
         const errorText = await pricingResponse.text();
-        console.error('🔍 SupplierPricingEditor: Error response body:', errorText);
       }
-      
       if (suppliersResponse.ok) {
         const data = await suppliersResponse.json();
-        console.log('🔍 SupplierPricingEditor: Suppliers data received:', data);
         setSuppliers((data.suppliers || []).map((x: any) => ({ 
           supplier_id: x.supplier_id, 
           supplier_name: x.supplier_name 
         })));
       } else {
-        console.error('🔍 SupplierPricingEditor: Suppliers response not ok:', suppliersResponse.status, suppliersResponse.statusText);
         const errorText = await suppliersResponse.text();
-        console.error('🔍 SupplierPricingEditor: Error response body:', errorText);
       }
     } catch (error) {
-      console.error('🔍 SupplierPricingEditor: Failed to load pricing data:', error);
     } finally {
       setLoading(false);
     }
@@ -279,7 +259,7 @@ export function SupplierPricingEditor({ materialId, fieldOptions }: SupplierPric
               <div 
                 key={row.pricing_id} 
                 className={`grid grid-cols-5 gap-2 p-3 items-center text-sm transition-colors ${
-                  editingId === row.pricing_id ? 'bg-blue-50' : 'hover:bg-gray-50'
+                  editingId === row.pricing_id ? 'bg-gray-50' : 'hover:bg-gray-50'
                 }`}
               >
                 {/* Supplier */}
