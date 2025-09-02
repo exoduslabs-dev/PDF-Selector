@@ -7,6 +7,7 @@ import { JobPage } from "./pages/JobPage";
 import { ProductionPage } from "./pages/ProductionPage";
 import { ArchivePage } from "./pages/ArchivePage";
 import { MaterialsPage } from "./pages/MaterialsPage";
+import MachineOperationsConfigPage from "./pages/MachineOperationsConfigPage";
 
 export function App() {
   const [activeTab, setActiveTab] = useState("quotes");
@@ -66,6 +67,16 @@ export function App() {
         >
           Materials
         </button>
+        <button
+          className={`w-28 h-10 rounded font-semibold transition-colors ${
+            activeTab === "machine-config"
+              ? "bg-blue-600 text-white"
+              : "bg-muted text-black"
+          }`}
+          onClick={() => setActiveTab("machine-config")}
+        >
+          Machine Config
+        </button>
         </div>
       </header>
 
@@ -80,6 +91,7 @@ export function App() {
           {activeTab === "production" && <ProductionPage />}
           {activeTab === "archive" && <ArchivePage />}
           {activeTab === "materials" && <MaterialsPage />}
+          {activeTab === "machine-config" && <MachineOperationsConfigPage />}
         </CardContent>
       </Card>
     </div>
