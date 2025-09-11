@@ -532,9 +532,9 @@ CREATE TABLE job_operations (
   operation_id TEXT REFERENCES operations(operation_id),
   sequence_order INTEGER,
   depends_on_operation_id TEXT REFERENCES job_operations(job_operation_id),
-  estimated_time_minutes INTEGER,
-  actual_time_minutes INTEGER,
-  setup_time_minutes INTEGER,
+  estimated_time_minutes FLOAT, -- Changed from INTEGER to FLOAT
+  actual_time_minutes FLOAT,    -- Changed from INTEGER to FLOAT
+  setup_time_minutes FLOAT,     -- Changed from INTEGER to FLOAT
   machine_id TEXT REFERENCES machines(machine_id),
   operator_id TEXT REFERENCES operators(operator_id),
   status TEXT DEFAULT 'pending', -- 'pending', 'in_progress', 'completed', 'on_hold'
@@ -735,6 +735,7 @@ CREATE TABLE business_rules (
 -- =============================================
 
 -- Jobs with complete tool and related information
+DROP VIEW IF EXISTS jobs_complete CASCADE;
 CREATE VIEW jobs_complete AS
 SELECT 
   j.*,
@@ -752,9 +753,9 @@ SELECT
   c.name AS customer_name,
   c.code AS customer_code,
   -- Material information
-  m.material_name,
+  m.material_name AS material_name_m,
   m.substrate_type,
-  m.cost_per_sqm_aud AS material_cost_per_sqm,
+  m.cost_aud AS material_cost_per_sqm, -- Changed from cost_per_sqm_aud to cost_aud to match actual column
   -- Finishing information
   f.finishing_type,
   f.cost_per_sqm_aud AS finishing_cost_per_sqm
@@ -924,3 +925,183 @@ READY FOR:
 - Advanced reporting and analytics
 - Scalable production management
 */
+
+-- =============================================
+-- MISSING TABLE STUBS FROM ERASER.IO DIAGRAM (for future implementation)
+-- =============================================
+
+-- The following tables are referenced in the Eraser.io schema but do not exist in the current schema.sql.
+-- Stubs are added here to ensure all relationships are represented. Please expand as needed for future features.
+
+-- Material Print Profiles (stub)
+CREATE TABLE IF NOT EXISTS material_print_profiles (
+  material_print_profile_id TEXT PRIMARY KEY, -- Added PK for stub
+  material_id TEXT REFERENCES materials(material_id),
+  press_profile_id TEXT -- FK to press_profiles.profile_id (see below)
+  -- Add additional columns as needed
+);
+
+-- Press Profiles (stub)
+CREATE TABLE IF NOT EXISTS press_profiles (
+  profile_id TEXT PRIMARY KEY
+  -- Add additional columns as needed
+);
+
+-- Production Time Estimates (stub)
+CREATE TABLE IF NOT EXISTS production_time_estimates (
+  estimate_id TEXT PRIMARY KEY, -- Added PK for stub
+  operation_id TEXT REFERENCES operations(operation_id),
+  estimated_time_minutes FLOAT -- Changed from INTEGER to FLOAT for more precise timing
+  -- Add additional columns as needed
+);
+
+-- Step Repeat Impositions (stub)
+CREATE TABLE IF NOT EXISTS step_repeat_impositions (
+  imposition_id TEXT PRIMARY KEY,
+  material_id TEXT REFERENCES materials(material_id),
+  finishing_id TEXT REFERENCES finishing_options(finishing_id),
+  press_profile_id TEXT REFERENCES press_profiles(profile_id)
+  -- Add additional columns as needed
+);
+
+-- Imposition File Relations (stub)
+CREATE TABLE IF NOT EXISTS imposition_file_relations (
+  imposition_file_relation_id TEXT PRIMARY KEY, -- Added PK for stub
+  imposition_id TEXT REFERENCES step_repeat_impositions(imposition_id),
+  file_id TEXT -- FK to single_page_files.file_id
+  -- Add additional columns as needed
+);
+
+-- Single Page Files (stub)
+CREATE TABLE IF NOT EXISTS single_page_files (
+  file_id TEXT PRIMARY KEY,
+  job_id TEXT REFERENCES jobs(job_id),
+  version_tag TEXT,
+  version_quantity INTEGER
+);
+-- Add additional columns as needed
+
+-- Runlists (stub)
+CREATE TABLE IF NOT EXISTS runlists (
+  runlist_id TEXT PRIMARY KEY,
+  material_id TEXT REFERENCES materials(material_id),
+  finishing_id TEXT REFERENCES finishing_options(finishing_id)
+  -- Add additional columns as needed
+);
+
+-- Runlist Impositions (stub)
+CREATE TABLE IF NOT EXISTS runlist_impositions (
+  runlist_imposition_id TEXT PRIMARY KEY, -- Added PK for stub
+  runlist_id TEXT REFERENCES runlists(runlist_id),
+  imposition_id TEXT REFERENCES step_repeat_impositions(imposition_id)
+  -- Add additional columns as needed
+);
+
+-- =============================================
+-- MISSING FOREIGN KEY RELATIONSHIPS FROM ERASER.IO DIAGRAM
+-- =============================================
+
+-- The following FKs are added to match the Eraser.io relationships. These are commented for clarity.
+-- If you expand the stub tables, ensure these FKs are preserved.
+
+-- material_print_profiles.material_id > materials.material_id (already present in stub)
+-- material_print_profiles.press_profile_id > press_profiles.profile_id (add FK constraint if/when column is not NULLABLE)
+-- production_time_estimates.operation_id > operations.operation_id (already present in stub)
+-- step_repeat_impositions.material_id > materials.material_id (already present in stub)
+-- step_repeat_impositions.finishing_id > finishing_options.finishing_id (already present in stub)
+-- step_repeat_impositions.press_profile_id > press_profiles.profile_id (add FK constraint if/when column is not NULLABLE)
+-- imposition_file_relations.imposition_id > step_repeat_impositions.imposition_id (already present in stub)
+-- imposition_file_relations.file_id > single_page_files.file_id (add FK constraint if/when column is not NULLABLE)
+-- runlists.material_id > materials.material_id (already present in stub)
+-- runlists.finishing_id > finishing_options.finishing_id (already present in stub)
+-- runlist_impositions.runlist_id > runlists.runlist_id (already present in stub)
+-- runlist_impositions.imposition_id > step_repeat_impositions.imposition_id (already present in stub)
+
+-- NOTE: For columns that are currently just TEXT, you may want to add NOT NULL and FK constraints as you implement these tables fully.
+-- These stubs ensure the schema is fully aligned with the Eraser.io diagram and ready for future expansion.
+
+-- =============================================
+-- MISSING TABLES FROM ERASER.IO DIAGRAM (STUBS FOR FUTURE IMPLEMENTATION)
+-- =============================================
+
+-- Table: press_profiles
+-- Purpose: Referenced by material_print_profiles and step_repeat_impositions. Only PK for now.
+CREATE TABLE IF NOT EXISTS press_profiles (
+  profile_id TEXT PRIMARY KEY
+  -- Add additional columns as needed
+);
+
+-- Table: material_print_profiles
+-- Purpose: Links materials to press profiles. Only PK and FKs for now.
+CREATE TABLE IF NOT EXISTS material_print_profiles (
+  material_print_profile_id TEXT PRIMARY KEY,
+  material_id TEXT REFERENCES materials(material_id),
+  press_profile_id TEXT REFERENCES press_profiles(profile_id)
+  -- Add additional columns as needed
+);
+
+-- Table: production_time_estimates
+-- Purpose: Stores time estimates for operations. Only PK, FK, and estimated_time_minutes for now.
+CREATE TABLE IF NOT EXISTS production_time_estimates (
+  estimate_id TEXT PRIMARY KEY,
+  file_id TEXT REFERENCES single_page_files(file_id),
+  operation_id TEXT REFERENCES operations(operation_id),
+  estimated_time_minutes FLOAT -- Estimated time in minutes for the operation (now float)
+  -- Add additional columns as needed
+);
+
+-- Table: step_repeat_impositions
+-- Purpose: Imposition settings for step & repeat. Only PK and FKs for now.
+CREATE TABLE IF NOT EXISTS step_repeat_impositions (
+  imposition_id TEXT PRIMARY KEY,
+  material_id TEXT REFERENCES materials(material_id),
+  finishing_id TEXT REFERENCES finishing_options(finishing_id),
+  press_profile_id TEXT REFERENCES press_profiles(profile_id)
+  -- Add additional columns as needed
+);
+
+-- Table: single_page_files
+-- Purpose: Referenced by imposition_file_relations. Only PK for now.
+CREATE TABLE IF NOT EXISTS single_page_files (
+  file_id TEXT PRIMARY KEY,
+  job_id TEXT REFERENCES jobs(job_id),
+  version_tag TEXT,
+  version_quantity INTEGER
+);
+-- Add additional columns as needed
+
+-- Table: imposition_file_relations
+-- Purpose: Links impositions to single page files. Only PK and FKs for now.
+CREATE TABLE IF NOT EXISTS imposition_file_relations (
+  relation_id TEXT PRIMARY KEY,
+  imposition_id TEXT REFERENCES step_repeat_impositions(imposition_id),
+  file_id TEXT REFERENCES single_page_files(file_id)
+  -- Add additional columns as needed
+);
+
+-- Table: runlists
+-- Purpose: Runlist management. Only PK and FKs for now.
+CREATE TABLE IF NOT EXISTS runlists (
+  runlist_id TEXT PRIMARY KEY,
+  material_id TEXT REFERENCES materials(material_id),
+  finishing_id TEXT REFERENCES finishing_options(finishing_id)
+  -- Add additional columns as needed
+);
+
+-- Table: runlist_impositions
+-- Purpose: Links runlists to impositions. Only PK and FKs for now.
+CREATE TABLE IF NOT EXISTS runlist_impositions (
+  runlist_imposition_id TEXT PRIMARY KEY,
+  runlist_id TEXT REFERENCES runlists(runlist_id),
+  imposition_id TEXT REFERENCES step_repeat_impositions(imposition_id)
+  -- Add additional columns as needed
+);
+
+-- =============================================
+-- END OF MISSING TABLE STUBS
+-- =============================================
+
+-- All stubs above are minimal and only include PKs and FKs as per the Eraser.io diagram.
+-- Expand these tables with additional columns and constraints as business logic is implemented.
+-- These stubs ensure all relationships in the diagram are represented in the schema.
+
