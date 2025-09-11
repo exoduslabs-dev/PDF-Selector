@@ -255,30 +255,12 @@ CREATE INDEX idx_line_file_job_composite ON line_file_associations(job_id, assoc
 -- MATERIAL & FINISHING MANAGEMENT
 -- =============================================
 
--- Material Groups (for categorizing materials)
-CREATE TABLE material_groups (
-  group_id TEXT PRIMARY KEY,
-  group_name TEXT UNIQUE NOT NULL,
-  group_description TEXT,
-  group_color TEXT, -- CSS color for UI display
-  sort_order INTEGER DEFAULT 0
-);
-
--- Insert default material groups
-INSERT INTO material_groups (group_id, group_name, group_description, group_color, sort_order) VALUES
-('label_rolls', 'Label Rolls', 'Label rolls and substrates for printing', '#4A90E2', 1),
-('finishing_supply', 'Finishing Supply', 'Lamination films, overlays, and finishing materials', '#7ED321', 2),
-('packaging_material', 'Packaging Material', 'Packaging substrates and protective materials', '#F5A623', 3),
-('adhesive_materials', 'Adhesive Materials', 'Adhesive tapes, transfer papers, and mounting supplies', '#D0021B', 4),
-('specialty_substrates', 'Specialty Substrates', 'Custom and specialty printing materials', '#9013FE', 5);
-
 -- Materials
 CREATE TABLE materials (
   material_id TEXT PRIMARY KEY,
   material_code TEXT UNIQUE,
   material_name TEXT,
   substrate_type TEXT, -- 'paper', 'vinyl', 'polyester', 'polypropylene'
-  substrate_group TEXT REFERENCES material_groups(group_id), -- New grouping field
   adhesive_type TEXT, -- 'permanent', 'removable', 'repositionable'
   handling TEXT, -- 'hand_applied', 'machine_applied'
   weight_gsm INTEGER,
@@ -296,41 +278,6 @@ CREATE TABLE materials (
   pricing_unit TEXT DEFAULT 'sqm', -- 'sqm', 'linear_meter', 'sheet', 'roll', 'kg'
   aliases TEXT -- JSON array of alternative names
 );
-
--- Suppliers
-CREATE TABLE IF NOT EXISTS suppliers (
-  supplier_id TEXT PRIMARY KEY,
-  supplier_code TEXT UNIQUE,
-  supplier_name TEXT NOT NULL,
-  contact_person TEXT,
-  email TEXT,
-  phone TEXT,
-  payment_terms TEXT,
-  lead_time_days INTEGER DEFAULT 0,
-  is_active BOOLEAN DEFAULT TRUE,
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_suppliers_code ON suppliers(supplier_code);
-CREATE INDEX IF NOT EXISTS idx_suppliers_name ON suppliers(supplier_name);
-
--- Material pricing by supplier
-CREATE TABLE IF NOT EXISTS material_supplier_pricing (
-  pricing_id TEXT PRIMARY KEY,
-  material_id TEXT REFERENCES materials(material_id) ON DELETE CASCADE,
-  supplier_id TEXT,
-  currency TEXT DEFAULT 'AUD',
-  unit_price DECIMAL(10,2) NOT NULL,
-  is_default BOOLEAN DEFAULT FALSE,
-  is_active BOOLEAN DEFAULT TRUE,
-  notes TEXT,
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_mat_price_material ON material_supplier_pricing(material_id);
-CREATE INDEX IF NOT EXISTS idx_mat_price_active ON material_supplier_pricing(material_id, is_active);
 
 -- Color Mode Rules (linked to materials)
 CREATE TABLE color_mode_rules (
@@ -509,26 +456,10 @@ CREATE INDEX idx_quotes_lineidentifier ON quotes(lineidentifier);
 -- JOBS TABLE (OPTIMIZED - NO REDUNDANT TOOL DATA)
 -- =============================================
 
--- Jobs - Complete design with all production and order management fields
-CREATE TABLE jobs (
+-- Jobs table (updated to match live database schema)
+CREATE TABLE IF NOT EXISTS jobs (
   job_id TEXT PRIMARY KEY,
   customer_id TEXT REFERENCES customers(customer_id),
-  
-  -- Order details (per job line)
-  purchase_order_number TEXT, -- Customer's PO number - multiple jobs can share same PO
-  order_date DATE DEFAULT CURRENT_DATE,
-  due_date DATE, -- Each job line can have different due date
-  delivery_address TEXT, -- Each job line can have different delivery address
-  rush_priority BOOLEAN DEFAULT FALSE,
-  job_status TEXT DEFAULT 'pending', -- 'pending', 'confirmed', 'in_production', 'completed', 'cancelled'
-  special_instructions TEXT, -- Job-specific instructions
-  
-  -- Quote references
-  quote_id TEXT, -- Reference to original quote
-  quote_line_id TEXT, -- Reference to specific quote line
-  quote_date DATE,
-  
-  -- Job specifications
   job_number TEXT,
   material_id TEXT REFERENCES materials(material_id),
   finishing_id TEXT REFERENCES finishing_options(finishing_id),
@@ -536,15 +467,32 @@ CREATE TABLE jobs (
   qty_per_roll INTEGER,
   requires_joining BOOLEAN DEFAULT FALSE,
   core_size TEXT,
-  web_width DECIMAL(8,2),
-  size_x DECIMAL(8,2),
-  size_y DECIMAL(8,2),
+  web_width NUMERIC(8,2),
+  size_x NUMERIC(8,2),
+  size_y NUMERIC(8,2),
   shape_id TEXT REFERENCES shapes(shape_id),
-  
-  -- CLEAN DESIGN: Only tool reference, no duplicate data
   tool_id TEXT REFERENCES tools_library(tool_id),
-  
-  -- Additional production fields
+  use_digital_cut BOOLEAN DEFAULT FALSE,
+  digital_cut_eligible BOOLEAN DEFAULT FALSE,
+  repeat_length NUMERIC(8,2),
+  max_step_qty INTEGER,
+  estimated_print_speed NUMERIC(6,2),
+  estimated_print_time INTEGER,
+  total_web_length NUMERIC(10,2),
+  material_overrun_allowance NUMERIC(5,2) DEFAULT 5.0,
+  job_status TEXT DEFAULT 'pending',
+  estimated_total_time INTEGER,
+  actual_total_time INTEGER,
+  profit_margin NUMERIC(8,2),
+  total_cost_aud NUMERIC(12,2),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  purchase_order_number TEXT,
+  order_date DATE DEFAULT CURRENT_DATE,
+  due_date DATE,
+  delivery_address TEXT,
+  rush_priority BOOLEAN DEFAULT FALSE,
+  special_instructions TEXT,
   line_identifier TEXT,
   line_identifier_no_prefix TEXT,
   job_name TEXT,
@@ -559,10 +507,10 @@ CREATE TABLE jobs (
   sibling_count INTEGER,
   revision INTEGER,
   approvers TEXT,
-  material_name TEXT, -- Denormalized for performance
-  finishing_name TEXT, -- Denormalized for performance
+  material_name TEXT,
+  finishing_name TEXT,
   print_colour TEXT,
-  tool TEXT, -- Denormalized tool name for legacy compatibility
+  tool TEXT,
   cores TEXT,
   hand_machine_applied TEXT,
   supply TEXT,
@@ -571,22 +519,10 @@ CREATE TABLE jobs (
   line_description TEXT,
   profit_centre_name TEXT,
   processed BOOLEAN DEFAULT FALSE,
-  
-  use_digital_cut BOOLEAN DEFAULT FALSE,
-  digital_cut_eligible BOOLEAN DEFAULT FALSE,
-  repeat_length DECIMAL(8,2),
-  max_step_qty INTEGER,
-  estimated_print_speed DECIMAL(6,2),
-  estimated_print_time INTEGER,
-  total_web_length DECIMAL(10,2),
-  material_overrun_allowance DECIMAL(5,2) DEFAULT 5.0,
-  estimated_total_time INTEGER,
-  actual_total_time INTEGER,
-  profit_margin DECIMAL(8,2),
-  total_cost_aud DECIMAL(12,2),
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  notes TEXT
+  notes TEXT,
+  shipping_mode TEXT,
+  courier_company_name TEXT,
+  shipping_type_id TEXT
 );
 
 -- Job Operations
@@ -891,7 +827,6 @@ CREATE INDEX idx_production_queue_priority ON production_queue(priority_score);
 -- Materials and finishing
 CREATE INDEX idx_materials_code ON materials(material_code);
 CREATE INDEX idx_materials_substrate_type ON materials(substrate_type);
-CREATE INDEX idx_materials_substrate_group ON materials(substrate_group);
 CREATE INDEX idx_finishing_options_code ON finishing_options(finishing_code);
 
 -- =============================================
