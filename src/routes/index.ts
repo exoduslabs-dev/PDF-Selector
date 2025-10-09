@@ -4,6 +4,7 @@ import { handleQuoteRoutes } from './quotes.js';
 import { handleJobRoutes } from './jobs.js';
 import { handleCustomerRoutes } from './customers.js';
 import { handleFileRoutes } from './files.js';
+import { handleMachineryRoutes } from './machineries.js';
 import type { RouteHandler } from '../types/common.js';
 
 /**
@@ -33,6 +34,10 @@ export const router: RouteHandler = async (req: Request, url: URL): Promise<Resp
   // Try file routes
   const fileResponse = await handleFileRoutes(req, url);
   if (fileResponse) return fileResponse;
+
+  // Try machinery routes
+  const machineryResponse = await handleMachineryRoutes(req, url);
+  if (machineryResponse) return machineryResponse;
 
   // No route matched
   return null;

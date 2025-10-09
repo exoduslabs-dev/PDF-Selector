@@ -161,7 +161,7 @@ export default function MachineOperationsConfigPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-6xl mx-auto py-8">
-        <h1 className="text-2xl font-bold mb-6">Machine Operations Configuration</h1>
+        <h1 className="text-2xl font-bold mb-6">Configuration</h1>
         <div className="flex gap-2 mb-8">
           {TABS.map(tab => (
             <button

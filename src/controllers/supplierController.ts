@@ -4,7 +4,8 @@ import {
   supplierSchema 
 } from '../middleware/validation.js';
 import { createSuccessResponse, createErrorResponse } from '../middleware/errorHandler.js';
-import { CreateSupplierRequest, UpdateSupplierRequest } from '../types/suppliers.js';
+import type { UpdateSupplierRequest } from '../types/suppliers.js';
+import type { CreateSupplierRequest } from '../types/suppliers.js';
 import { getCorsHeaders } from '../config/cors.js';
 
 export class SupplierController {

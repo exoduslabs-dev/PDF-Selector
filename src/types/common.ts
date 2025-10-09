@@ -79,3 +79,19 @@ export type RequestMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'OPTIO
 export interface RouteHandler {
   (req: Request, url: URL): Promise<Response | null>;
 }
+
+// Machinery types
+export interface Machinery {
+  id: string;
+  name: string;
+  state: 'running' | 'idle' | 'maintenance' | 'error';
+  machineType?: string;
+  currentJob: { jobId: string; name: string } | null;
+  queueLength: number;
+  unitsPerHour: number;
+  maintenanceDue: boolean;
+  lastUpdated: string;
+  schedule: Array<{ time: string; event: string }>;
+}
+
+export type MachineryUpdate = Partial<Omit<Machinery, 'id'>>;
