@@ -68,116 +68,121 @@ export default function ScanningPage(): React.ReactElement {
       <h1 style={{ marginTop: 0 }}>Scanning / Operations</h1>
       <p style={{ color: '#555' }}>Select a machine to view its configured operations, or leave blank to list all operations.</p>
 
-      <div style={{ marginTop: 12 }}>
-        <label htmlFor="machine-select" style={{ display: 'block', marginBottom: 6 }}>Select machine</label>
-        <select
-          id="machine-select"
-          value={selectedMachine || ''}
-          onChange={(e) => setSelectedMachine(e.target.value || undefined)}
-          style={{ padding: 8, borderRadius: 6, border: '1px solid #ddd', minWidth: 240 }}
-        >
-          <option value="" disabled>Select a machine</option>
-          {machineries.map((m) => (
-            <option key={m.id} value={m.id}>{m.name}</option>
-          ))}
-        </select>
-      </div>
+      {/* Two-column top area: left = operations, right = machine selector + scanning */}
+      <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start', marginTop: 12 }}>
+        {/* Left column: operations checklist (fixed width) */}
+        <div style={{ width: 320, border: '1px solid #eee', padding: 12, borderRadius: 8, background: '#fff' }}>
+          <h3 style={{ marginTop: 0, marginBottom: 8 }}>Operations</h3>
+          {loading ? (
+            <div>Loading operations...</div>
+          ) : operations.length === 0 ? (
+            <div style={{ color: '#888' }}>No operations found.</div>
+          ) : (
+            <ul style={{ paddingLeft: 18, margin: 0 }}>
+              {operations.map((op) => {
+                const disabled = !selectedMachine;
+                const checked = selectedOperations.has(op.id);
+                return (
+                  <li key={op.id} style={{ marginBottom: 8 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <input
+                        type="checkbox"
+                        disabled={disabled}
+                        checked={checked}
+                        onChange={(e) => {
+                          const isChecked = e.target.checked;
+                          setSelectedOperations((prev) => {
+                            const next = new Set(prev);
+                            if (isChecked) next.add(op.id);
+                            else next.delete(op.id);
+                            return next;
+                          });
+                        }}
+                      />
+                      <span style={{ fontWeight: 600 }}>{op.name}</span>
+                    </label>
+                    {op.description ? <div style={{ color: '#555' }}>{op.description}</div> : null}
+                    {op.setupTimeMinutes ? <div style={{ color: '#777', fontSize: 12 }}>Setup: {op.setupTimeMinutes} min</div> : null}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
 
-      <div style={{ marginTop: 12 }}>
-        <div style={{ marginTop: 10 }}>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-            <input
-              aria-label="Scan input"
-              value={scanInput}
-              onChange={(e) => setScanInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  const trimmed = scanInput.trim();
-                  if (trimmed) {
-                    const clientId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-                    // optimistic pending entry
-                    setRecentScans((r) => [{ clientId, code: trimmed, status: 'pending', operations: Array.from(selectedOperations) }, ...r]);
-                    void submitScanWithClientId(trimmed, clientId);
-                    setScanInput('');
-                  }
-                }
-              }}
-              placeholder="Scan or paste job id and press Enter"
-              style={{ flex: 1, padding: 8, borderRadius: 6, border: '1px solid #ddd' }}
-            />
-            <button onClick={() => {
-              const trimmed = scanInput.trim();
-              if (trimmed) {
-                const clientId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-                setRecentScans((r) => [{ clientId, code: trimmed, status: 'pending', operations: Array.from(selectedOperations) }, ...r]);
-                void submitScanWithClientId(trimmed, clientId);
-                setScanInput('');
-              }
-            }} style={{ padding: '8px 12px' }}>Add</button>
-            <button onClick={() => setRecentScans([])} style={{ padding: '8px 12px' }}>Clear</button>
+        {/* Right column: machine selector + scanning controls */}
+        <div style={{ flex: 1 }}>
+          <div>
+            <label htmlFor="machine-select" style={{ display: 'block', marginBottom: 6 }}>Select machine</label>
+            <select
+              id="machine-select"
+              value={selectedMachine || ''}
+              onChange={(e) => setSelectedMachine(e.target.value || undefined)}
+              style={{ padding: 8, borderRadius: 6, border: '1px solid #ddd', minWidth: 240 }}
+            >
+              <option value="" disabled>Select a machine</option>
+              {machineries.map((m) => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
           </div>
 
-          <div>
-            <h3 style={{ margin: '6px 0' }}>Recent scans</h3>
-            {recentScans.length === 0 ? (
-              <div style={{ color: '#888' }}>No items scanned yet.</div>
-            ) : (
-              <ul style={{ paddingLeft: 18 }}>
-                {recentScans.map((item) => (
-                  <li key={item.clientId} style={{ marginBottom: 8 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <strong>{item.code}</strong>
-                      {item.status === 'pending' && <span style={{ color: '#888' }}>• pending</span>}
-                      {item.status === 'success' && <span style={{ color: 'green' }}>✓</span>}
-                      {item.status === 'failed' && <span style={{ color: 'red' }}>✗</span>}
-                    </div>
-                    {item.message ? <div style={{ color: item.status === 'failed' ? 'red' : '#555', fontSize: 12 }}>{item.message}</div> : null}
-                    {item.operations && item.operations.length > 0 ? <div style={{ color: '#777', fontSize: 12 }}>Operations: {item.operations.join(', ')}</div> : null}
-                  </li>
-                ))}
-              </ul>
-            )}
+          <div style={{ marginTop: 12 }}>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+              <input
+                aria-label="Scan input"
+                value={scanInput}
+                onChange={(e) => setScanInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    const trimmed = scanInput.trim();
+                    if (trimmed) {
+                      const clientId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+                      // optimistic pending entry
+                      setRecentScans((r) => [{ clientId, code: trimmed, status: 'pending', operations: Array.from(selectedOperations) }, ...r]);
+                      void submitScanWithClientId(trimmed, clientId);
+                      setScanInput('');
+                    }
+                  }
+                }}
+                placeholder="Scan or paste job id and press Enter"
+                style={{ flex: 1, padding: 8, borderRadius: 6, border: '1px solid #ddd' }}
+              />
+              <button onClick={() => {
+                const trimmed = scanInput.trim();
+                if (trimmed) {
+                  const clientId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+                  setRecentScans((r) => [{ clientId, code: trimmed, status: 'pending', operations: Array.from(selectedOperations) }, ...r]);
+                  void submitScanWithClientId(trimmed, clientId);
+                  setScanInput('');
+                }
+              }} style={{ padding: '8px 12px' }}>Add</button>
+              <button onClick={() => setRecentScans([])} style={{ padding: '8px 12px' }}>Clear</button>
+            </div>
+
+            <div>
+              <h3 style={{ margin: '6px 0' }}>Recent scans</h3>
+              {recentScans.length === 0 ? (
+                <div style={{ color: '#888' }}>No items scanned yet.</div>
+              ) : (
+                <ul style={{ paddingLeft: 18 }}>
+                  {recentScans.map((item) => (
+                    <li key={item.clientId} style={{ marginBottom: 8 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <strong>{item.code}</strong>
+                        {item.status === 'pending' && <span style={{ color: '#888' }}>• pending</span>}
+                        {item.status === 'success' && <span style={{ color: 'green' }}>✓</span>}
+                        {item.status === 'failed' && <span style={{ color: 'red' }}>✗</span>}
+                      </div>
+                      {item.message ? <div style={{ color: item.status === 'failed' ? 'red' : '#555', fontSize: 12 }}>{item.message}</div> : null}
+                      {item.operations && item.operations.length > 0 ? <div style={{ color: '#777', fontSize: 12 }}>Operations: {item.operations.join(', ')}</div> : null}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           </div>
         </div>
-      </div>
-
-      <div style={{ marginTop: 16 }}>
-        {loading ? (
-          <div>Loading operations...</div>
-        ) : operations.length === 0 ? (
-          <div style={{ color: '#888' }}>No operations found.</div>
-        ) : (
-          <ul style={{ paddingLeft: 18 }}>
-            {operations.map((op) => {
-              const disabled = !selectedMachine;
-              const checked = selectedOperations.has(op.id);
-              return (
-                <li key={op.id} style={{ marginBottom: 8 }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <input
-                      type="checkbox"
-                      disabled={disabled}
-                      checked={checked}
-                      onChange={(e) => {
-                        const isChecked = e.target.checked;
-                        setSelectedOperations((prev) => {
-                          const next = new Set(prev);
-                          if (isChecked) next.add(op.id);
-                          else next.delete(op.id);
-                          return next;
-                        });
-                      }}
-                    />
-                    <span style={{ fontWeight: 600 }}>{op.name}</span>
-                    {/* previously showed saving state for DB assignment; left intentionally out for local selection */}
-                  </label>
-                  {op.description ? <div style={{ color: '#555' }}>{op.description}</div> : null}
-                  {op.setupTimeMinutes ? <div style={{ color: '#777', fontSize: 12 }}>Setup: {op.setupTimeMinutes} min</div> : null}
-                </li>
-              );
-            })}
-          </ul>
-        )}
       </div>
 
       <p style={{ marginTop: 18, color: '#666', fontSize: 13 }}>
