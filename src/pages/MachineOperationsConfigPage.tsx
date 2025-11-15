@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import MachineOperationMachine from "./machineOperation_machine";
-import MachineOperationOperations from "./machineOperation_operations";
+import MachineOperationOperations from "./machineOperation_operations.tsx";
 import MachineOperationOperators from "./machineOperation_operators";
 import MachineOperationQueue from "./machineOperation_queue";
 import MachineOperationCapacity from "./machineOperation_capacity";

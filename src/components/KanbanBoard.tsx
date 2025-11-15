@@ -399,7 +399,7 @@ export function KanbanBoard({
         setLoading(true);
         // For now, use the same data source for both boards
         // Later you can modify the API to filter by company: boardType
-        const response = await apiCall('/api/kanban-data?limit=20&company=next-labels');
+        const response = await apiCall(`/api/kanban-data?limit=20&company=${encodeURIComponent(boardType)}`);
         if (!response.ok) {
           throw new Error('Failed to fetch kanban data');
         }

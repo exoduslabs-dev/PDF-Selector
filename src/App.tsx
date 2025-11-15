@@ -1,7 +1,7 @@
 import { Card, CardContent } from "@/components/ui/card";
 import "../styles/globals.css";
 import "./index.css";
-import React, { useState } from "react";
+import { useState } from "react";
 import { QuotesPage } from "./pages/QuotesPage";
 import { JobPage } from "./pages/JobPage";
 import { ProductionPage } from "./pages/ProductionPage";
@@ -10,6 +10,7 @@ import { MaterialsPage } from "./pages/MaterialsPage";
 import MachineriesPage from "./pages/MachineriesPage";
 import MachineOperationsConfigPage from "./pages/MachineOperationsConfigPage";
 import AnalyticsPage from "./pages/AnalyticsPage";
+import ScanningPage from "./pages/ScanningPage.tsx";
 
 export function App() {
   const [activeTab, setActiveTab] = useState("quotes");
@@ -99,6 +100,16 @@ export function App() {
         >
           Analytics
         </button>
+        <button
+          className={`w-28 h-10 rounded font-semibold transition-colors ${
+            activeTab === "scanning"
+              ? "bg-blue-600 text-white"
+              : "bg-muted text-black"
+          }`}
+          onClick={() => setActiveTab("scanning")}
+        >
+          Scanning
+        </button>
         </div>
       </header>
 
@@ -115,6 +126,7 @@ export function App() {
           {activeTab === "materials" && <MaterialsPage />}
           {activeTab === "machineries" && <MachineriesPage />}
           {activeTab === "analytics" && <AnalyticsPage />}
+          {activeTab === "scanning" && <ScanningPage />}
           {activeTab === "machine-config" && <MachineOperationsConfigPage />}
         </CardContent>
       </Card>

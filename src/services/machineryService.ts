@@ -229,4 +229,69 @@ export class MachineryService {
       throw new DatabaseError('Failed to update machinery', err);
     }
   }
+
+  async getOperations(machineId?: string): Promise<any[]> {
+    try {
+      const params: any[] = [];
+      let where = '';
+      if (machineId) {
+        where = 'WHERE machine_id = $1';
+        params.push(machineId);
+      }
+
+      const rows = await executeQuery(`
+        SELECT
+          operation_id as id,
+          operation_name as name,
+          machine_id,
+          operation_category,
+          can_run_parallel,
+          requires_operator,
+          setup_time_base_minutes
+        FROM operations
+        ${where}
+        ORDER BY name
+      `, params);
+
+      return (rows || []).map((r: any) => ({
+        id: String(r.id),
+        name: r.name,
+        machineId: r.machine_id != null ? String(r.machine_id) : undefined,
+        category: r.operation_category || undefined,
+        canRunParallel: r.can_run_parallel === true,
+        requiresOperator: r.requires_operator === true,
+        setupTimeMinutes: r.setup_time_base_minutes != null ? Number(r.setup_time_base_minutes) : undefined,
+      }));
+    } catch (err) {
+      // If the operations table doesn't exist, return empty list rather than throwing
+      return [];
+    }
+  }
+
+  // Update operation's machine association (assign/unassign to a machine)
+  async updateOperationMachine(operationId: string, machineId?: string | null): Promise<any | null> {
+    // Editing operation assignments is intentionally disabled.
+    // This system treats operations as read-only for viewing purposes only.
+    throw new DatabaseError('Operation assignments are read-only. Editing operations is disabled.');
+  }
+
+  // record a scanned code (accept operations array and optional metadata)
+  async createScan(codeText: string, machineId?: string | null, userId?: string | null, operations?: any[] | null, metadata?: any): Promise<any> {
+    try {
+      const sql = `INSERT INTO scanned_codes (code_text, machine_id, user_id, operations, metadata) VALUES ($1, $2, $3, $4, $5) RETURNING scan_id, code_text, scanned_at, machine_id, user_id, operations, metadata`;
+      const row = await executeQuerySingle(sql, [codeText, machineId || null, userId || null, operations ? JSON.stringify(operations) : null, metadata || null]);
+      if (!row) return null;
+      return {
+        scanId: row.scan_id ?? row.scanId,
+        codeText: row.code_text || row.codeText,
+        scannedAt: row.scanned_at || row.scannedAt,
+        machineId: row.machine_id || row.machineId,
+        userId: row.user_id || row.userId,
+        operations: row.operations || null,
+        metadata: row.metadata || null,
+      };
+    } catch (err) {
+      throw new DatabaseError('Failed to create scan', err);
+    }
+  }
 }

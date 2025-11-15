@@ -60,7 +60,7 @@ export function JobPage() {
     try {
       setLoading(true);
       setError(null);
-      const response = await apiCall(`/api/jobs?limit=${dataLimit}`);
+      const response = await apiCall(`/api/jobs?limit=${dataLimit}&company=next-labels`);
       if (!response.ok) {
         throw new Error('Failed to fetch jobs');
       }
@@ -90,7 +90,7 @@ export function JobPage() {
     try {
       // Only refresh the specific job data if jobId is provided
       if (jobId) {
-        const response = await apiCall(`/api/jobs?limit=${dataLimit}`);
+        const response = await apiCall(`/api/jobs?limit=${dataLimit}&company=next-labels`);
         if (response.ok) {
           const data = await response.json();
           setJobs(data);

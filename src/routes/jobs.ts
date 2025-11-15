@@ -17,6 +17,11 @@ export const handleJobRoutes: RouteHandler = async (req: Request, url: URL): Pro
     return await jobController.getKanbanData(req, url);
   }
 
+  // PUT /api/jobs/:jobId/status - Update job status
+  if (url.pathname.startsWith('/api/jobs/') && url.pathname.endsWith('/status') && req.method === 'PUT') {
+    return await jobController.updateJobStatus(req, url);
+  }
+
   // Route not handled by this module
   return null;
 };
